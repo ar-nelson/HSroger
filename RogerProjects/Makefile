@@ -5,11 +5,13 @@ X11 = /usr/X11R6
 ############## do not change below this line ####################
 
 ROGERINCDIR = ./include
+HSINCDIR    = ./HSinclude
 
 XINCDIR = $(X11)/include
 XLIBDIR = $(X11)/lib
 EDLAB_XINCDIR = /usr/include/X11
 EDLAB_XLIBDIR = /usr/lib/i386-linux-gnu
+HSLIBDIR = HSlib
 
 XAWLIB = -lXaw
 XMULIB = -lXmu
@@ -19,59 +21,21 @@ XEXTLIB = -lXext
 MATHLIB = -lm
 
 LIBS =  -L$(XLIBDIR) $(XAWLIB) $(XMULIB) $(XTOOLLIB) $(XLIB) $(XEXTLIB) \
-	$(MATHLIB)
-
-#EXTRAARGS = $(shell cat ../hsproject6/link-options)
+	$(MATHLIB) -L$(HSLIBDIR) $(shell ls $(HSLIBDIR)/ | sed "s/^/-l:/" | sed "s/*//" | tr '\n' ' ')
 
 RM = rm -f
 CC = ghc
-CCFLAGS = -dynamic -no-hs-main -I. -I$(XINCDIR) -I$(EDLAB_XINCDIR) -I$(ROGERINCDIR) -IHSinclude\
-	  -LHSlib -lHSroger -l:$(wildcard HSlib/libHSVec*.so)
-
-#.SUFFIXES:	.c	.o
-
-#.c.o:	
-	#$(CC) $(CCFLAGS) $<
+CCFLAGS = -dynamic -no-hs-main -I. -I$(XINCDIR) -I$(EDLAB_XINCDIR) -I$(ROGERINCDIR) -I$(HSINCDIR)
 
 ############## do not change above this line ####################
 
 PROG = x
 
-PROJECTOFILES = project1-MotorUnits/project1.o \
-                project2-ArmKinematics/project2.o \
-		project3-Vision/project3.o \
-		project4-SearchTrack/project4.o \
-                project4-SearchTrack/sampling.o \
-		project5-StereoKinematics/project5.o \
-		project6-Kalman/project6.o \
-		project6-Kalman/kalman.o \
-		project6-Kalman/gauss_noise.o \
-                project7-ChasePunch/project7.o \
-		project8-PathPlanning/project8.o \
-		project8-PathPlanning/velocity_control.o \
-		project9-PONG/project9.o
-
-HFILES = roger.h simulate.h control.h modes.h matrix_math.h
-
 all: $(PROG)
 
-#all:  subdirs  $(PROG)
-
-#subdirs:
-	#cd project1-MotorUnits; make; cd ..; \
-	#cd project2-ArmKinematics; make; cd ..;
-	#cd project3-Vision; make; cd ..; \
-	#cd project4-SearchTrack; make; cd ..; \
-	#cd project5-StereoKinematics; make; cd ..; \
-	#cd project6-Kalman; make; cd ..; \
-	#cd project7-ChasePunch; make; cd ..; \
-	#cd project8-PathPlanning; make; cd ..; \
-	#cd project9-PONG; make; cd ..;
-
 $(PROG):
-	$(CC) $(CCFLAGS) -o $@ lib/simulator.a $(LIBS) -optl-Wl,-rpath,'$$ORIGIN/HSlib' project-stubs.c
+	$(CC) $(CCFLAGS) -o $@ lib/simulator.a $(LIBS) -optl-Wl,-rpath,'$$ORIGIN/$(HSLIBDIR)' project-stubs.c
 
 clean:
 	$(RM) project-stubs.o $(PROG) *~
-
 
