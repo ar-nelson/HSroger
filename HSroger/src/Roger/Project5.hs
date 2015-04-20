@@ -26,16 +26,18 @@ import           Roger.Types
 
 --------------------------------------------------------------------------------
 
-type State = Maybe Observation :* SearchState :* TrackState :* PrDist :* ()
+type State = LensRecord `With` Maybe Observation
+                        `With` SearchState
+                        `With` TrackState
+                        `With` PrDist
 
 initState ∷ IO State
-initState = return $ Just Observation { obsPos = 0 :. 0 :. ()
-                                      , obsCov = mat22 0 0 0 0
-                                      }
-                  :* SearchState UNKNOWN
-                  :* TrackState  UNKNOWN
-                  :* prRedPrior
-                  :* ()
+initState = return $ LensRecord `With` Just Observation { obsPos = 0 :. 0 :. ()
+                                                        , obsCov = mat22 0 0 0 0
+                                                        }
+                                `With` SearchState UNKNOWN
+                                `With` TrackState  UNKNOWN
+                                `With` prRedPrior
 
 --------------------------------------------------------------------------------
 
@@ -81,10 +83,11 @@ stereoObservation roger = computeAverageRedPixel roger <&> \avgRed →
 --------------------------------------------------------------------------------
 
 control ∷ Robot → State → Double → IO (Robot, State)
-control roger st _ = do roger' :* st' ← execStateT searchtrack (roger :* st)
-                        obs ← stereoObservation roger'
-                        forM_ (maybeToList obs) print
-                        return (roger', lput obs st')
+control roger st _ =
+  do st' `With` roger' ← execStateT searchtrack (st `With` roger)
+     obs ← stereoObservation roger'
+     forM_ (maybeToList obs) print
+     return (roger', lput obs st')
 
 enterParams ∷ State → IO State
 enterParams = return

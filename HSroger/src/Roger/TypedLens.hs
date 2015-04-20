@@ -11,22 +11,25 @@ module Roger.TypedLens( Lens(..)
                       , lgetSt
                       , lgetsSt
                       , lputSt
-                      , (:*)(..)
+                      , LensRecord(..)
+                      , With(..)
 ) where
 
 --------------------------------------------------------------------------------
 -- TYPED LENSES
 --
 -- The "lens pattern" is a commonly-used Haskell design pattern for extensible
--- records. However, the lens library on Hackage is huge*, unwieldy, and
+-- records. However, the lens library on Hackage is huge, unwieldy*, and
 -- difficult to compile in my current Makefile+GHC setup.
 --
 -- Therefore, I've invented my own extremely-simple substitute. These typed
 -- lenses are effectively HLists, which use newtypes as record field names. Lens
--- is a typeclass, not a type, and an object of class `Lens Foo` has a field of
+-- is a typeclass, not a type, and a value of class `Lens Foo` has a field of
 -- type Foo.
 --
--- Simple lenses can be constructed using the :* cons operator.
+-- Simple lenses are "snoc lists" (reverse cons lists), and can be constructed
+-- using the `With` type operator; the first element of a `With` chain should be
+-- the LensRecord type/constructor, which is equivalent to ().
 --
 -- * https://ro-che.info/articles/2014-04-24-lens-unidiomatic
 
@@ -51,17 +54,23 @@ lgetsSt f = gets (*. f)
 lputSt ∷ (Lens τ λ, MonadState λ μ) ⇒ τ → μ ()
 lputSt = modify . lput
 
+instance Lens τ τ where
+  lget x = x
+  lput x _ = x
+
 --------------------------------------------------------------------------------
 
-infixr :*
+infixl 2 `With`
 
-data τHead :* τTail = τHead :* τTail
+data LensRecord = LensRecord
 
-instance Lens τ (τ :* α) where
-  lget (h :* _) = h
-  lput h (_ :* t) = h :* t
+data τHead `With` τTail = τHead `With` τTail
 
-instance Lens τ β ⇒ Lens τ (α :* β) where
-  lget (_ :* t) = lget t
-  lput x (h :* t) = h :* lput x t
+instance Lens τ (α `With` τ) where
+  lget (_ `With` h) = h
+  lput h (t `With` _) = t `With` h
+
+instance Lens τ β ⇒ Lens τ (β `With` α) where
+  lget (t `With` _) = lget t
+  lput x (t `With` h) = lput x t `With` h
 

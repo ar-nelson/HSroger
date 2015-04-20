@@ -28,13 +28,14 @@ import           Roger.Types
 newtype SearchState = SearchState { getSearchState ∷ ControlStatus }
 newtype TrackState  = TrackState  { getTrackState ∷ ControlStatus }
 
-type State = SearchState :* TrackState :* PrDist :* ()
+type State = LensRecord `With` SearchState
+                        `With` TrackState
+                        `With` PrDist
 
 initState ∷ IO State
-initState = return $ SearchState UNKNOWN
-                  :* TrackState  UNKNOWN
-                  :* prRedPrior
-                  :* ()
+initState = return $ LensRecord `With` SearchState UNKNOWN
+                                `With` TrackState  UNKNOWN
+                                `With` prRedPrior
 
 --------------------------------------------------------------------------------
 
@@ -99,8 +100,9 @@ searchtrack = get >>= \st →
 --------------------------------------------------------------------------------
 
 control ∷ Robot → State → Double → IO (Robot, State)
-control roger st _ = do roger' :* st' ← execStateT searchtrack (roger :* st)
-                        return (roger', st')
+control roger st _ =
+  do st' `With` roger' ← execStateT searchtrack (st `With` roger)
+     return (roger', st')
 
 enterParams ∷ State → IO State
 enterParams = return
