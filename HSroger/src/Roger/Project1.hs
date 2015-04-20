@@ -28,12 +28,6 @@ baseJT = Pair { left  = (1.0 / 2.0, -1.0 / (2.0 * axleRadius))
 
 --------------------------------------------------------------------------------
 
-clampAngle ∷ Double → Double
-clampAngle θ | θ > pi    = clampAngle (θ - twoPi)
-             | θ < -pi   = clampAngle (θ + twoPi)
-             | otherwise = θ
-             where twoPi = 2 * pi
-
 anglePDController ∷ Gains → Double → Double → Double → Double
 anglePDController gains setθ θ θ' =
   (_Kp gains * θerror) + (_Kd gains * θ'error)

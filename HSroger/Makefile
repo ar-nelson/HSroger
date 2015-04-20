@@ -18,7 +18,7 @@ mkdirs:
 
 deps:
 	cabal sandbox init
-	cabal install Vec --enable-shared --enable-executable-dynamic
+	cabal install Vec random mtl --enable-executable-dynamic
 
 clean:
 	rm -rf ./build

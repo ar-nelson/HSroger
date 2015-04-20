@@ -2,7 +2,6 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE TypeSynonymInstances  #-}
 {-# LANGUAGE UnicodeSyntax         #-}
 
 module Roger.Types( VectorAndAngle(..)
@@ -18,11 +17,13 @@ module Roger.Types( VectorAndAngle(..)
                   , red
                   , green
                   , blue
+                  , ControlStatus(..)
                   , constructwTb
                   , xOf
                   , yOf
                   , mat22
                   , mat44
+                  , clampAngle
 ) where
 
 import           Control.Monad
@@ -31,7 +32,8 @@ import           Data.Word
 import           Foreign.C.Types
 import           Foreign.Ptr
 import           Foreign.Storable
-import           Prelude          hiding (head, tail, take)
+
+--------------------------------------------------------------------------------
 
 data VectorAndAngle = VectorAndAngle { xyOf ∷ Vec2D
                                      , θOf  ∷ Double
@@ -78,6 +80,14 @@ blue  (RGB ptr) = peekByteOff ptr (2 * intSize)
 
 --------------------------------------------------------------------------------
 
+data ControlStatus = UNKNOWN
+                   | NO_REFERENCE
+                   | TRANSIENT
+                   | CONVERGED
+                   deriving (Eq, Ord, Show)
+
+--------------------------------------------------------------------------------
+
 xOf ∷ Access N0 α υ ⇒ υ → α
 xOf = get n0
 
@@ -92,8 +102,7 @@ mat22 a0 a1 b0 b1 =  (a0 :. a1 :. ())
 mat44 ∷ α → α → α → α
       → α → α → α → α
       → α → α → α → α
-      → α → α → α → α
-      → Mat44 α
+      → α → α → α → α → Mat44 α
 mat44 a0 a1 a2 a3
       b0 b1 b2 b3
       c0 c1 c2 c3
@@ -113,6 +122,12 @@ constructwTb basePos = mat44
 
   where s0 = sin (θOf basePos)
         c0 = cos (θOf basePos)
+
+clampAngle ∷ Double → Double
+clampAngle θ | θ > pi    = clampAngle (θ - twoPi)
+             | θ < -pi   = clampAngle (θ + twoPi)
+             | otherwise = θ
+             where twoPi = 2 * pi
 
 --------------------------------------------------------------------------------
 
