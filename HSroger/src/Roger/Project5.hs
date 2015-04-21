@@ -32,7 +32,7 @@ type State = LensRecord `With` Maybe Observation
                         `With` PrDist
 
 initState ∷ IO State
-initState = return $ LensRecord `With` Just Observation { obsPos = 0 :. 0 :. ()
+initState = return $ LensRecord `With` Just Observation { obsPos = Vec2D 0 0
                                                         , obsCov = mat22 0 0 0 0
                                                         }
                                 `With` SearchState UNKNOWN
@@ -41,7 +41,7 @@ initState = return $ LensRecord `With` Just Observation { obsPos = 0 :. 0 :. ()
 
 --------------------------------------------------------------------------------
 
-data Observation = Observation { obsPos ∷ Vec2 Double
+data Observation = Observation { obsPos ∷ Vec2D
                                , obsCov ∷ Mat22 Double
                                } deriving Show
 
@@ -70,7 +70,7 @@ stereoObservation roger = computeAverageRedPixel roger <&> \avgRed →
 
         _JW  = wRb `multmm` _JB
 
-    in Observation { obsPos = take n2 refw
+    in Observation { obsPos = pack $ take n2 refw
                    , obsCov = (_JW `multmm` transpose _JW) `multms` σobs
                    }
   where Robot{..} = roger

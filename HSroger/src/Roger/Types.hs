@@ -21,6 +21,8 @@ module Roger.Types( VectorAndAngle(..)
                   , constructwTb
                   , xOf
                   , yOf
+                  , polar
+                  , unpolar
                   , mat22
                   , mat44
                   , clampAngle
@@ -93,6 +95,14 @@ xOf = get n0
 
 yOf ∷ Access N1 α υ ⇒ υ → α
 yOf = get n1
+
+polar ∷ ( Access N0 Double v, Access N1 Double v, Num v, Fold v Double
+        , ZipWith Double Double Double v v v
+        ) ⇒ v → (Double, Double)
+polar v = (norm v, atan2 (yOf v) (xOf v))
+
+unpolar ∷ Double → Double → Vec2D
+unpolar r θ = Vec2D (r * cos θ) (r * sin θ)
 
 mat22 ∷ α → α → α → α → Mat22 α
 mat22 a0 a1 b0 b1 =  (a0 :. a1 :. ())

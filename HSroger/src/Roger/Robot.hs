@@ -3,7 +3,9 @@
 module Roger.Robot( axleRadius
                   , armLength
                   , armOffset
+                  , ballRadius
                   , baseline
+                  , baseRadius
                   , focalLength
                   , Robot(..)
 ) where
@@ -22,8 +24,14 @@ armLength = ArmPair { shoulder = 0.5, elbow = 0.5 }
 armOffset ∷ Pair Double
 armOffset = Pair { left = -0.18, right = 0.18 }
 
+ballRadius ∷ Double
+ballRadius = 0.20
+
 baseline ∷ Double
 baseline = 0.08
+
+baseRadius ∷ Double
+baseRadius = 0.16
 
 focalLength ∷ Double
 focalLength = 64 -- pixels
