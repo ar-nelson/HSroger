@@ -36,8 +36,8 @@ type State = LensRecord `With` SearchState
                         `With` PrDist
 
 initState ∷ IO State
-initState = return $ LensRecord `With` SearchState UNKNOWN
-                                `With` TrackState  UNKNOWN
+initState = return $ LensRecord `With` SearchState Unknown
+                                `With` TrackState  Unknown
                                 `With` prRedPrior
 
 --------------------------------------------------------------------------------
@@ -49,21 +49,21 @@ search ∷ ( Has Robot s, Has SearchState s, Has PrDist s
          , MonadState s m, MonadIO m
          ) ⇒ m ()
 search = getsStateL getSearchState >>= doSearch
-  where doSearch CONVERGED = return ()
-        doSearch TRANSIENT =
+  where doSearch Converged = return ()
+        doSearch Transient =
           do roger ← getStateL
              let heading   = θOf (baseSetpoint roger)
                  baseθ     = θOf (basePosition roger)
                  eyeTarget = clampAngle (heading - baseθ)
              putStateL roger { eyeSetpoint = mapPair (const eyeTarget) }
              setDebugL SearchState $ if abs (baseθ - heading) < ε
-                                        then CONVERGED
-                                        else TRANSIENT
-        doSearch _ = maybe (setDebugL SearchState NO_REFERENCE) setHeading
+                                        then Converged
+                                        else Transient
+        doSearch _ = maybe (setDebugL SearchState NoReference) setHeading
                        =<< sampleGazeDirection
         setHeading heading =
           do mapStateL (\r → r {baseSetpoint = (baseSetpoint r){θOf = heading}})
-             doSearch TRANSIENT
+             doSearch Transient
 
 track ∷ (Has Robot s, Has TrackState s, MonadState s m, MonadIO m) ⇒ m ()
 track = do roger  ← getStateL
@@ -79,23 +79,23 @@ track = do roger  ← getStateL
 
            if isJust (left avgRed) || isJust (right avgRed)
               then if abs avgBaseError < ε
-                      then do setDebugL TrackState CONVERGED
+                      then do setDebugL TrackState Converged
                               mapStateL $ \r → r { eyeSetpoint = eyes }
-                      else do setDebugL TrackState TRANSIENT
+                      else do setDebugL TrackState Transient
                               mapStateL $ \r → r { eyeSetpoint  = eyes
                                                  , baseSetpoint = base
                                                  }
-              else TrackState *= NO_REFERENCE
+              else TrackState *= NoReference
 
 searchtrack ∷ ( Has Robot s, Has SearchState s, Has TrackState s , Has PrDist s
               , MonadState s m, MonadIO m
               ) ⇒ m ()
 searchtrack = get >>= \st →
   case st *. getSearchState of
-    UNKNOWN   → case st *. getTrackState of
-                    NO_REFERENCE → msg "SEARCH" >> search
+    Unknown   → case st *. getTrackState of
+                    NoReference → msg "SEARCH" >> search
                     _            → track
-    CONVERGED → msg "TRACK" >> setDebugL SearchState UNKNOWN >> track
+    Converged → msg "TRACK" >> setDebugL SearchState Unknown >> track
     _         → search
   where msg s = liftIO (putStrLn ("Switched to " ++ s ++ " mode."))
 

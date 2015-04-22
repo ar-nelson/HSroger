@@ -35,8 +35,8 @@ initState ∷ IO State
 initState = return $ LensRecord `With` Just Observation { obsPos = Vec2D 0 0
                                                         , obsCov = mat22 0 0 0 0
                                                         }
-                                `With` SearchState UNKNOWN
-                                `With` TrackState  UNKNOWN
+                                `With` SearchState Unknown
+                                `With` TrackState  Unknown
                                 `With` prRedPrior
 
 --------------------------------------------------------------------------------

@@ -41,10 +41,10 @@ type State = LensRecord `With` ChaseState
                         `With` PrDist
 
 initState ∷ IO State
-initState = return $ LensRecord `With` ChaseState  UNKNOWN
-                                `With` PunchState  UNKNOWN
-                                `With` SearchState UNKNOWN
-                                `With` TrackState  UNKNOWN
+initState = return $ LensRecord `With` ChaseState  Unknown
+                                `With` PunchState  Unknown
+                                `With` SearchState Unknown
+                                `With` TrackState  Unknown
                                 `With` prRedPrior
 
 --------------------------------------------------------------------------------
@@ -75,17 +75,17 @@ homePosition = Pair { left  = ArmPair { shoulder = pi
 chase ∷ (Has Robot s, Has ChaseState s, MonadState s m, MonadIO m) ⇒ m ()
 chase = (>>= either (setDebugL ChaseState) (setDebugL ChaseState)) . runExceptT $ do
   st    ← get
-  evalStateT track (st `With` TrackState TRANSIENT)
+  evalStateT track (st `With` TrackState Transient)
   roger    ← getStateL
   maybeObs ← liftIO (stereoObservation roger)
-  obs      ← maybe (throwError NO_REFERENCE) (return . obsPos) maybeObs
+  obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
   let ballOffset            = obs - xyOf (basePosition roger)
       (ballDist, ballAngle) = polar ballOffset
       rError = abs (ballDist - targetDist)
       θError = abs (ballAngle - θOf (basePosition roger))
   if rError <= rε && θError <= θε
      then mapStateL (\r → r { armSetpoint = homePosition })
-          >> return CONVERGED
+          >> return Converged
      else mapStateL (\r → r { armSetpoint  = homePosition
                             , baseSetpoint = VectorAndAngle
                                 { xyOf = obs - unpolar targetDist ballAngle
@@ -93,26 +93,26 @@ chase = (>>= either (setDebugL ChaseState) (setDebugL ChaseState)) . runExceptT 
                                 }
                             })
           -- >> liftIO (putStrLn ("Ball Angle: " ++ show ballAngle))
-          >> return TRANSIENT
+          >> return Transient
 
 punch ∷ (Has Robot s, Has PunchState s, MonadState s m, MonadIO m) ⇒ m ()
 punch = (>>= either giveUp (setDebugL PunchState)) . runExceptT $ do
   roger      ← getStateL
   punchState ← getsStateL getPunchState
-  when (punchState == UNKNOWN || punchState == NO_REFERENCE) $ do
+  when (punchState == Unknown || punchState == NoReference) $ do
     maybeObs ← liftIO (stereoObservation roger)
-    obs      ← maybe (throwError NO_REFERENCE) (return . obsPos) maybeObs
+    obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
     let (_, ballAngle) = polar (obs - xyOf (basePosition roger))
         target         = obs - unpolar ballRadius ballAngle
-    maybe (throwError NO_REFERENCE)
+    maybe (throwError NoReference)
           (\p → mapStateL $ \r → r { armSetpoint = (armSetpoint r){right = p} })
           (invArmKinematics roger right target)
   let θError = mapArms (\i → i (armθ roger) - i (armSetpoint roger))
   when (right (extForce roger) /= Vec2D 0 0) $
-    throwError CONVERGED
+    throwError Converged
   when (armMax θError < θε && armMax (armθ' roger) < θ'ε) $
-    throwError NO_REFERENCE
-  return TRANSIENT
+    throwError NoReference
+  return Transient
   where giveUp s = do mapStateL $ \r → r { armSetpoint = homePosition }
                       setDebugL PunchState s
         armMax a = max (shoulder (right a)) (elbow (right a))
@@ -123,19 +123,19 @@ chasepunch ∷ ( Has Robot s,      Has SearchState s, Has TrackState s
              ) ⇒ m ()
 chasepunch = get >>= \st →
   case st *. getTrackState of
-    CONVERGED → case st *. getChaseState of
-      UNKNOWN   → chase
-      TRANSIENT → chase
-      CONVERGED → case st *. getPunchState of
-        UNKNOWN   → punch
-        TRANSIENT → punch
-        _ → do setDebugL SearchState UNKNOWN
-               setDebugL TrackState  UNKNOWN
-               setDebugL ChaseState  UNKNOWN
-               setDebugL PunchState  UNKNOWN
-      _ → do setDebugL SearchState UNKNOWN
-             setDebugL TrackState  UNKNOWN
-             setDebugL ChaseState  UNKNOWN
+    Converged → case st *. getChaseState of
+      Unknown   → chase
+      Transient → chase
+      Converged → case st *. getPunchState of
+        Unknown   → punch
+        Transient → punch
+        _ → do setDebugL SearchState Unknown
+               setDebugL TrackState  Unknown
+               setDebugL ChaseState  Unknown
+               setDebugL PunchState  Unknown
+      _ → do setDebugL SearchState Unknown
+             setDebugL TrackState  Unknown
+             setDebugL ChaseState  Unknown
     _ → searchtrack
 
 --------------------------------------------------------------------------------

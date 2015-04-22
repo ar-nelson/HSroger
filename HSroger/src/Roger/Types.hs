@@ -82,10 +82,10 @@ blue  (RGB ptr) = peekByteOff ptr (2 * intSize)
 
 --------------------------------------------------------------------------------
 
-data ControlStatus = UNKNOWN
-                   | NO_REFERENCE
-                   | TRANSIENT
-                   | CONVERGED
+data ControlStatus = Unknown
+                   | NoReference
+                   | Transient
+                   | Converged
                    deriving (Eq, Ord, Show)
 
 --------------------------------------------------------------------------------
