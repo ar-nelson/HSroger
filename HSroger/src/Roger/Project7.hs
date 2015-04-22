@@ -1,12 +1,12 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UnicodeSyntax         #-}
 
 module Roger.Project7( State
                      , control
                      , enterParams
-                     , reset
                      , initState
                      , ChaseState(..)
                      , PunchState(..)
@@ -22,7 +22,7 @@ import           Data.Vec             hiding (get)
 import           Roger.Project2       (invArmKinematics)
 import           Roger.Project4       (SearchState (..), TrackState (..),
                                        searchtrack, track)
-import           Roger.Project5       (Observation (..), stereoObservation)
+import           Roger.Project5       (stereoObservation)
 import           Roger.Robot
 import           Roger.Sampling       (PrDist, prRedPrior)
 import           Roger.TypedLens
@@ -77,41 +77,38 @@ chase = (>>= either (setDebugL ChaseState) (setDebugL ChaseState)) . runExceptT 
   st    ← get
   evalStateT track (st `With` TrackState Transient)
   roger    ← getStateL
-  maybeObs ← liftIO (stereoObservation roger)
+  maybeObs ← liftIO (stereoObservation roger 0)
   obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
   let ballOffset            = obs - xyOf (basePosition roger)
       (ballDist, ballAngle) = polar ballOffset
       rError = abs (ballDist - targetDist)
       θError = abs (ballAngle - θOf (basePosition roger))
+  mapStateL (\r → r { armSetpoint = homePosition })
   if rError <= rε && θError <= θε
-     then mapStateL (\r → r { armSetpoint = homePosition })
-          >> return Converged
-     else mapStateL (\r → r { armSetpoint  = homePosition
-                            , baseSetpoint = VectorAndAngle
-                                { xyOf = obs - unpolar targetDist ballAngle
-                                , θOf  = ballAngle
-                                }
-                            })
-          -- >> liftIO (putStrLn ("Ball Angle: " ++ show ballAngle))
-          >> return Transient
+     then return Converged
+     else let setPt = VectorAndAngle { xyOf = obs - unpolar targetDist ballAngle
+                                     , θOf  = ballAngle
+                                     }
+          in mapStateL (\r → r { baseSetpoint = setPt })
+             -- >> liftIO (putStrLn ("Ball Angle: " ++ show ballAngle))
+             >> return Transient
 
 punch ∷ (Has Robot s, Has PunchState s, MonadState s m, MonadIO m) ⇒ m ()
 punch = (>>= either giveUp (setDebugL PunchState)) . runExceptT $ do
   roger      ← getStateL
+  let Robot{..} = roger
   punchState ← getsStateL getPunchState
   when (punchState == Unknown || punchState == NoReference) $ do
-    maybeObs ← liftIO (stereoObservation roger)
+    maybeObs ← liftIO (stereoObservation roger 0)
     obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
-    let (_, ballAngle) = polar (obs - xyOf (basePosition roger))
+    let (_, ballAngle) = polar (obs - xyOf basePosition)
         target         = obs - unpolar ballRadius ballAngle
     maybe (throwError NoReference)
-          (\p → mapStateL $ \r → r { armSetpoint = (armSetpoint r){right = p} })
+          (\p → mapStateL $ \r → r { armSetpoint = armSetpoint { right = p } })
           (invArmKinematics roger right target)
-  let θError = mapArms (\i → i (armθ roger) - i (armSetpoint roger))
-  when (right (extForce roger) /= Vec2D 0 0) $
-    throwError Converged
-  when (armMax θError < θε && armMax (armθ' roger) < θ'ε) $
-    throwError NoReference
+  let θError = mapArms (\i → i armθ - i armSetpoint)
+  when (right extForce /= Vec2D 0 0)              (throwError Converged)
+  when (armMax θError < θε && armMax armθ' < θ'ε) (throwError NoReference)
   return Transient
   where giveUp s = do mapStateL $ \r → r { armSetpoint = homePosition }
                       setDebugL PunchState s
@@ -147,7 +144,4 @@ control roger st _ =
 
 enterParams ∷ State → IO State
 enterParams = return
-
-reset ∷ Robot → State → IO (Robot, State)
-reset r _ = initState >>= \s → return (r, s)
 

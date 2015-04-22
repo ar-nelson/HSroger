@@ -5,9 +5,7 @@
 module Roger.Project5( State
                      , control
                      , enterParams
-                     , reset
                      , initState
-                     , Observation(..)
                      , stereoObservation
 ) where
 
@@ -34,6 +32,7 @@ type State = LensRecord `With` Maybe Observation
 initState ∷ IO State
 initState = return $ LensRecord `With` Just Observation { obsPos = Vec2D 0 0
                                                         , obsCov = mat22 0 0 0 0
+                                                        , obsTime = 0
                                                         }
                                 `With` SearchState Unknown
                                 `With` TrackState  Unknown
@@ -41,15 +40,11 @@ initState = return $ LensRecord `With` Just Observation { obsPos = Vec2D 0 0
 
 --------------------------------------------------------------------------------
 
-data Observation = Observation { obsPos ∷ Vec2D
-                               , obsCov ∷ Mat22 Double
-                               } deriving Show
-
 σobs ∷ Double
 σobs = 0.025
 
-stereoObservation ∷ Robot → IO (Maybe Observation)
-stereoObservation roger = computeAverageRedPixel roger <&> \avgRed →
+stereoObservation ∷ Robot → Double → IO (Maybe Observation)
+stereoObservation roger time = computeAverageRedPixel roger <&> \avgRed →
   mapPairM (\i → fmap (i eyeθ +) (i avgRed)) <&> \Pair{left = γL, right = γR} →
 
     let λL   = (2 * baseline) / sq (sin (γR - γL))
@@ -70,8 +65,9 @@ stereoObservation roger = computeAverageRedPixel roger <&> \avgRed →
 
         _JW  = wRb `multmm` _JB
 
-    in Observation { obsPos = pack $ take n2 refw
-                   , obsCov = (_JW `multmm` transpose _JW) `multms` σobs
+    in Observation { obsPos  = pack $ take n2 refw
+                   , obsCov  = (_JW `multmm` transpose _JW) `multms` σobs
+                   , obsTime = time
                    }
   where Robot{..} = roger
         baseθ     = θOf basePosition
@@ -83,15 +79,12 @@ stereoObservation roger = computeAverageRedPixel roger <&> \avgRed →
 --------------------------------------------------------------------------------
 
 control ∷ Robot → State → Double → IO (Robot, State)
-control roger st _ =
+control roger st time =
   do st' `With` roger' ← execStateT searchtrack (st `With` roger)
-     obs ← stereoObservation roger'
+     obs ← stereoObservation roger' time
      forM_ (maybeToList obs) print
      return (roger', putL obs st')
 
 enterParams ∷ State → IO State
 enterParams = return
-
-reset ∷ Robot → State → IO (Robot, State)
-reset r _ = initState >>= \s → return (r, s)
 

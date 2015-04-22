@@ -37,7 +37,7 @@ void project2_control(Robot* roger, double time) {
   project2_state = hs_project2_control(roger, project2_get_state(), time);
 }
 void project2_reset(Robot* roger) {
-  project2_state = hs_project2_reset(roger, project2_get_state());
+  project2_state = hs_project2_init_state();
 }
 void project2_enter_params() {
   project2_state = hs_project2_enter_params(project2_get_state());
@@ -62,7 +62,7 @@ void project3_control(Robot* roger, double time) {
   project3_state = hs_project3_control(roger, project3_get_state(), time);
 }
 void project3_reset(Robot* roger) {
-  project3_state = hs_project3_reset(roger, project3_get_state());
+  project3_state = hs_project3_init_state();
 }
 void project3_enter_params() {
   project3_state = hs_project3_enter_params(project3_get_state());
@@ -82,7 +82,7 @@ void project4_control(Robot* roger, double time) {
   project4_state = hs_project4_control(roger, project4_get_state(), time);
 }
 void project4_reset(Robot* roger) {
-  project4_state = hs_project4_reset(roger, project4_get_state());
+  project4_state = hs_project4_init_state();
 }
 void project4_enter_params() {
   project4_state = hs_project4_enter_params(project4_get_state());
@@ -102,7 +102,7 @@ void project5_control(Robot* roger, double time) {
   project5_state = hs_project5_control(roger, project5_get_state(), time);
 }
 void project5_reset(Robot* roger) {
-  project5_state = hs_project5_reset(roger, project5_get_state());
+  project5_state = hs_project5_init_state();
 }
 void project5_enter_params() {
   project5_state = hs_project5_enter_params(project5_get_state());
@@ -122,7 +122,7 @@ void project6_control(Robot* roger, double time) {
   project6_state = hs_project6_control(roger, project6_get_state(), time);
 }
 void project6_reset(Robot* roger) {
-  project6_state = hs_project6_reset(roger, project6_get_state());
+  project6_state = hs_project6_init_state();
 }
 void project6_enter_params() {
   project6_state = hs_project6_enter_params(project6_get_state());
@@ -142,7 +142,7 @@ void project7_control(Robot* roger, double time) {
   project7_state = hs_project7_control(roger, project7_get_state(), time);
 }
 void project7_reset(Robot* roger) {
-  project7_state = hs_project7_reset(roger, project7_get_state());
+  project7_state = hs_project7_init_state();
 }
 void project7_enter_params() {
   project7_state = hs_project7_enter_params(project7_get_state());
@@ -162,7 +162,7 @@ void project8_control(Robot* roger, double time) {
   project8_state = hs_project8_control(roger, project8_get_state(), time);
 }
 void project8_reset(Robot* roger) {
-  project8_state = hs_project8_reset(roger, project8_get_state());
+  project8_state = hs_project8_init_state();
 }
 void project8_enter_params() {
   project8_state = hs_project8_enter_params(project8_get_state());
@@ -188,7 +188,7 @@ void project9_control(Robot* roger, double time) {
   project9_state = hs_project9_control(roger, project9_get_state(), time);
 }
 void project9_reset(Robot* roger) {
-  project9_state = hs_project9_reset(roger, project9_get_state());
+  project9_state = hs_project9_init_state();
 }
 void project9_enter_params() {
   project9_state = hs_project9_enter_params(project9_get_state());

@@ -3,7 +3,6 @@
 module Roger.Project3( State
                      , control
                      , enterParams
-                     , reset
                      , initState
                      , computeAverageRedPixel
                      , imageCoordToAngle
@@ -53,7 +52,4 @@ control roger st _ =
 
 enterParams ∷ State → IO State
 enterParams = return
-
-reset ∷ Robot → State → IO (Robot, State)
-reset r s = return (r, s)
 

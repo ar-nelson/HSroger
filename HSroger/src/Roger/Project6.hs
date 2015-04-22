@@ -1,4 +1,4 @@
-module Roger.Project6(State, control, enterParams, reset, initState) where
+module Roger.Project6(State, control, enterParams, initState) where
 
 import           Roger.Robot
 
@@ -9,9 +9,6 @@ control r s _ = return (r, s)
 
 enterParams :: State -> IO State
 enterParams = return
-
-reset :: Robot -> State -> IO (Robot, State)
-reset r s = return (r, s)
 
 initState :: IO State
 initState = return ()

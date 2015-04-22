@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE UnicodeSyntax         #-}
 
 module Roger.Types( VectorAndAngle(..)
@@ -17,6 +18,7 @@ module Roger.Types( VectorAndAngle(..)
                   , red
                   , green
                   , blue
+                  , Observation(..)
                   , ControlStatus(..)
                   , constructwTb
                   , xOf
@@ -28,6 +30,7 @@ module Roger.Types( VectorAndAngle(..)
                   , clampAngle
 ) where
 
+import           Control.Applicative
 import           Control.Monad
 import           Data.Vec
 import           Data.Word
@@ -87,6 +90,11 @@ data ControlStatus = Unknown
                    | Transient
                    | Converged
                    deriving (Eq, Ord, Show)
+
+data Observation = Observation { obsPos  ∷ Vec2D
+                               , obsCov  ∷ Mat22 Double
+                               , obsTime ∷ Double
+                               } deriving Show
 
 --------------------------------------------------------------------------------
 
@@ -151,47 +159,40 @@ instance Storable VectorAndAngle where
   sizeOf _ = 3 * doubleSize
   alignment _ = 4
   peek p = liftM2 VectorAndAngle (liftM2 Vec2D (peek p')
-                                               (peek $ adv p'))
-                                 (peek $ adv $ adv p')
+                                               (peekElemOff p' 1))
+                                 (peekElemOff p' 2)
            where p' = castPtr p ∷ Ptr Double
   poke p (VectorAndAngle (Vec2D x y) θ) =
-    poke p' x >> poke (adv p') y >> poke (adv $ adv p') θ
+    poke p' x >> pokeElemOff p' 1 y >> pokeElemOff p' 2 θ
     where p' = castPtr p ∷ Ptr Double
 
 instance Storable (Pair Double) where
   sizeOf _ = 2 * doubleSize
   alignment _ = 4
-  peek p = liftM2 Pair (peek p') (peek $ adv p')
+  peek p = liftM2 Pair (peek p') (peekElemOff p' 1)
            where p' = castPtr p ∷ Ptr Double
-  poke p (Pair l r) =  poke p' l >> poke (adv p') r
+  poke p (Pair l r) =  poke p' l >> pokeElemOff p' 1 r
                        where p' = castPtr p ∷ Ptr Double
 
 instance Storable (Pair (ArmPair Double)) where
   sizeOf _ = 4 * doubleSize
   alignment _ = 4
-  peek p = liftM2 Pair
-             (liftM2 ArmPair (peek p')
-                             (peek $ adv p'))
-             (liftM2 ArmPair (peek $ adv $ adv p')
-                             (peek $ adv $ adv $ adv p'))
-           where p' = castPtr p ∷ Ptr Double
+  peek p = Pair <$> (ArmPair <$> get 0 <*> get 1)
+                <*> (ArmPair <$> get 2 <*> get 3)
+           where get = peekElemOff (castPtr p ∷ Ptr Double)
   poke p (Pair (ArmPair l1 l2) (ArmPair r1 r2)) =
-    poke p' l1 >> poke (adv p') l2 >> poke (adv $ adv p') r1
-    >> poke (adv $ adv $ adv p') r2
-    where p' = castPtr p ∷ Ptr Double
+    put 0 l1 >> put 1 l2 >> put 2 r1 >> put 3 r2
+    where put = pokeElemOff (castPtr p ∷ Ptr Double)
 
 instance Storable (Pair Vec2D) where
   sizeOf _ = 4 * doubleSize
   alignment _ = 4
-  peek p = liftM2 Pair (liftM2 Vec2D (peek p')
-                                     (peek $ adv p'))
-                       (liftM2 Vec2D (peek $ adv $ adv p')
-                                     (peek $ adv $ adv $ adv p'))
-           where p' = castPtr p ∷ Ptr Double
+  peek p = Pair <$> (Vec2D <$> get 0 <*> get 1)
+                <*> (Vec2D <$> get 2 <*> get 3)
+           where get = peekElemOff (castPtr p ∷ Ptr Double)
   poke p (Pair (Vec2D x1 y1) (Vec2D x2 y2)) =
-    poke p' x1 >> poke (adv p') y1
-    >> poke (adv $ adv p') x2 >> poke (adv $ adv $ adv p') y2
-    where p' = castPtr p ∷ Ptr Double
+    put 0 x1 >> put 1 y1 >> put 2 x2 >> put 3 y2
+    where put = pokeElemOff (castPtr p ∷ Ptr Double)
 
 instance Storable (Pair Image) where
   sizeOf _ = 2 * intSize * imagePixels * 3
@@ -200,6 +201,20 @@ instance Storable (Pair Image) where
                          (Image $ castPtr $ p `plusPtr` (intSize*imagePixels*3))
   poke _ _ = return ()
 
-adv ∷ Ptr Double → Ptr Double
-adv = (`plusPtr` doubleSize)
+instance Storable Observation where
+  sizeOf _ = 7 * doubleSize
+  alignment _ = 4
+  peek p = Observation <$> (Vec2D <$> get 0 <*> get 1)
+                       <*> (mat22 <$> get 2 <*> get 3 <*> get 4 <*> get 5)
+                       <*> get 6
+           where get = peekElemOff (castPtr p ∷ Ptr Double)
+  poke p Observation{..} =
+    do put 0 (xOf obsPos)
+       put 1 (yOf obsPos)
+       put 2 (xOf (xOf obsCov))
+       put 3 (yOf (xOf obsCov))
+       put 4 (xOf (yOf obsCov))
+       put 5 (yOf (yOf obsCov))
+       put 6 obsTime
+    where put = pokeElemOff (castPtr p ∷ Ptr Double)
 

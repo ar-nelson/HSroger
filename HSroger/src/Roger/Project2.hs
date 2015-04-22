@@ -4,7 +4,6 @@
 module Roger.Project2( State
                      , control
                      , enterParams
-                     , reset
                      , initState
                      , fwdArmKinematics
                      , invArmKinematics
@@ -92,7 +91,4 @@ control r s _ = return (r, s)
 
 enterParams ∷ State → IO State
 enterParams = return
-
-reset ∷ Robot → State → IO (Robot, State)
-reset r _ = initState >>= \s → return (r, s)
 

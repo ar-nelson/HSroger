@@ -8,7 +8,6 @@
 module Roger.Project4( State
                      , control
                      , enterParams
-                     , reset
                      , initState
                      , SearchState(..)
                      , TrackState(..)
@@ -108,7 +107,4 @@ control roger st _ =
 
 enterParams ∷ State → IO State
 enterParams = return
-
-reset ∷ Robot → State → IO (Robot, State)
-reset r _ = initState >>= \s → return (r, s)
 
