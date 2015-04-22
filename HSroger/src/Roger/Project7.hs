@@ -31,6 +31,9 @@ import           Roger.Types
 newtype ChaseState = ChaseState { getChaseState ∷ ControlStatus }
 newtype PunchState = PunchState { getPunchState ∷ ControlStatus }
 
+instance Show ChaseState where show (ChaseState s) = "ChaseState " ++ show s
+instance Show PunchState where show (PunchState s) = "PunchState " ++ show s
+
 type State = LensRecord `With` ChaseState
                         `With` PunchState
                         `With` SearchState
@@ -70,9 +73,9 @@ homePosition = Pair { left  = ArmPair { shoulder = pi
 --------------------------------------------------------------------------------
 
 chase ∷ (Has Robot s, Has ChaseState s, MonadState s m, MonadIO m) ⇒ m ()
-chase = (>>= either (ChaseState *=) (ChaseState *=)) . runExceptT $ do
+chase = (>>= either (setDebugL ChaseState) (setDebugL ChaseState)) . runExceptT $ do
   st    ← get
-  evalStateT track (st `With` TrackState UNKNOWN)
+  evalStateT track (st `With` TrackState TRANSIENT)
   roger    ← getStateL
   maybeObs ← liftIO (stereoObservation roger)
   obs      ← maybe (throwError NO_REFERENCE) (return . obsPos) maybeObs
@@ -89,11 +92,11 @@ chase = (>>= either (ChaseState *=) (ChaseState *=)) . runExceptT $ do
                                 , θOf  = ballAngle
                                 }
                             })
-          >> liftIO (putStrLn ("Ball Angle: " ++ show ballAngle))
+          -- >> liftIO (putStrLn ("Ball Angle: " ++ show ballAngle))
           >> return TRANSIENT
 
 punch ∷ (Has Robot s, Has PunchState s, MonadState s m, MonadIO m) ⇒ m ()
-punch = (>>= either giveUp (PunchState *=)) . runExceptT $ do
+punch = (>>= either giveUp (setDebugL PunchState)) . runExceptT $ do
   roger      ← getStateL
   punchState ← getsStateL getPunchState
   when (punchState == UNKNOWN || punchState == NO_REFERENCE) $ do
@@ -111,7 +114,7 @@ punch = (>>= either giveUp (PunchState *=)) . runExceptT $ do
     throwError NO_REFERENCE
   return TRANSIENT
   where giveUp s = do mapStateL $ \r → r { armSetpoint = homePosition }
-                      PunchState *= s
+                      setDebugL PunchState s
         armMax a = max (shoulder (right a)) (elbow (right a))
 
 chasepunch ∷ ( Has Robot s,      Has SearchState s, Has TrackState s
@@ -126,13 +129,13 @@ chasepunch = get >>= \st →
       CONVERGED → case st *. getPunchState of
         UNKNOWN   → punch
         TRANSIENT → punch
-        _ → do SearchState *= UNKNOWN
-               TrackState  *= UNKNOWN
-               ChaseState  *= UNKNOWN
-               PunchState  *= UNKNOWN
-      _ → do SearchState *= UNKNOWN
-             TrackState  *= UNKNOWN
-             ChaseState  *= UNKNOWN
+        _ → do setDebugL SearchState UNKNOWN
+               setDebugL TrackState  UNKNOWN
+               setDebugL ChaseState  UNKNOWN
+               setDebugL PunchState  UNKNOWN
+      _ → do setDebugL SearchState UNKNOWN
+             setDebugL TrackState  UNKNOWN
+             setDebugL ChaseState  UNKNOWN
     _ → searchtrack
 
 --------------------------------------------------------------------------------

@@ -28,6 +28,9 @@ import           Roger.Types
 newtype SearchState = SearchState { getSearchState ∷ ControlStatus }
 newtype TrackState  = TrackState  { getTrackState ∷ ControlStatus }
 
+instance Show SearchState where show (SearchState s) = "SearchState " ++ show s
+instance Show TrackState where show (TrackState s) = "TrackState " ++ show s
+
 type State = LensRecord `With` SearchState
                         `With` TrackState
                         `With` PrDist
@@ -53,10 +56,10 @@ search = getsStateL getSearchState >>= doSearch
                  baseθ     = θOf (basePosition roger)
                  eyeTarget = clampAngle (heading - baseθ)
              putStateL roger { eyeSetpoint = mapPair (const eyeTarget) }
-             SearchState *= if abs (baseθ - heading) < ε
-                               then CONVERGED
-                               else TRANSIENT
-        doSearch _ = maybe (SearchState *= NO_REFERENCE) setHeading
+             setDebugL SearchState $ if abs (baseθ - heading) < ε
+                                        then CONVERGED
+                                        else TRANSIENT
+        doSearch _ = maybe (setDebugL SearchState NO_REFERENCE) setHeading
                        =<< sampleGazeDirection
         setHeading heading =
           do mapStateL (\r → r {baseSetpoint = (baseSetpoint r){θOf = heading}})
@@ -76,9 +79,9 @@ track = do roger  ← getStateL
 
            if isJust (left avgRed) || isJust (right avgRed)
               then if abs avgBaseError < ε
-                      then do TrackState *= CONVERGED
+                      then do setDebugL TrackState CONVERGED
                               mapStateL $ \r → r { eyeSetpoint = eyes }
-                      else do TrackState *= TRANSIENT
+                      else do setDebugL TrackState TRANSIENT
                               mapStateL $ \r → r { eyeSetpoint  = eyes
                                                  , baseSetpoint = base
                                                  }
@@ -92,7 +95,7 @@ searchtrack = get >>= \st →
     UNKNOWN   → case st *. getTrackState of
                     NO_REFERENCE → msg "SEARCH" >> search
                     _            → track
-    CONVERGED → msg "TRACK" >> SearchState *= UNKNOWN >> track
+    CONVERGED → msg "TRACK" >> setDebugL SearchState UNKNOWN >> track
     _         → search
   where msg s = liftIO (putStrLn ("Switched to " ++ s ++ " mode."))
 
