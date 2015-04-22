@@ -30,7 +30,7 @@ prRedPrior = PrDist { prBinSize = (2.0 * pi) / nHeadings
                     , prBins    = replicate distBins (1.0/nHeadings)
                     }
 
-sampleGazeDirection ∷ (Lens PrDist s, MonadState s m, MonadIO m)
+sampleGazeDirection ∷ (Has PrDist s, MonadState s m, MonadIO m)
                     ⇒ m (Maybe Double)
 -- The original function contained a lot of dead code.
 -- Presumably it was meant to be improved by the student?
@@ -38,7 +38,7 @@ sampleGazeDirection ∷ (Lens PrDist s, MonadState s m, MonadIO m)
 -- This implementation takes and returns the distribution in case I want to
 -- update it, but it currently returns the distribution unchanged.
 sampleGazeDirection =
-  do dist ← lgetSt
+  do dist ← getStateL
      rnd  ← liftIO $ randomRIO (0.0, prArea dist)
      let accum i sum | sum < rnd = accum (i + 1) (sum + (prBins dist !! i))
                      | otherwise = i

@@ -69,11 +69,11 @@ homePosition = Pair { left  = ArmPair { shoulder = pi
 
 --------------------------------------------------------------------------------
 
-chase ∷ (Lens Robot s, Lens ChaseState s, MonadState s m, MonadIO m) ⇒ m ()
+chase ∷ (Has Robot s, Has ChaseState s, MonadState s m, MonadIO m) ⇒ m ()
 chase = (>>= either (ChaseState *=) (ChaseState *=)) . runExceptT $ do
   st    ← get
   evalStateT track (st `With` TrackState UNKNOWN)
-  roger    ← lgetSt
+  roger    ← getStateL
   maybeObs ← liftIO (stereoObservation roger)
   obs      ← maybe (throwError NO_REFERENCE) (return . obsPos) maybeObs
   let ballOffset            = obs - xyOf (basePosition roger)
@@ -81,28 +81,28 @@ chase = (>>= either (ChaseState *=) (ChaseState *=)) . runExceptT $ do
       rError = abs (ballDist - targetDist)
       θError = abs (ballAngle - θOf (basePosition roger))
   if rError <= rε && θError <= θε
-     then lputSt roger { armSetpoint = homePosition }
+     then mapStateL (\r → r { armSetpoint = homePosition })
           >> return CONVERGED
-     else lputSt roger { armSetpoint  = homePosition
-                       , baseSetpoint = VectorAndAngle
-                           { xyOf = obs - unpolar targetDist ballAngle
-                           , θOf  = ballAngle
-                           }
-                       }
+     else mapStateL (\r → r { armSetpoint  = homePosition
+                            , baseSetpoint = VectorAndAngle
+                                { xyOf = obs - unpolar targetDist ballAngle
+                                , θOf  = ballAngle
+                                }
+                            })
           >> liftIO (putStrLn ("Ball Angle: " ++ show ballAngle))
           >> return TRANSIENT
 
-punch ∷ (Lens Robot s, Lens PunchState s, MonadState s m, MonadIO m) ⇒ m ()
+punch ∷ (Has Robot s, Has PunchState s, MonadState s m, MonadIO m) ⇒ m ()
 punch = (>>= either giveUp (PunchState *=)) . runExceptT $ do
-  roger      ← lgetSt
-  punchState ← lgetsSt getPunchState
+  roger      ← getStateL
+  punchState ← getsStateL getPunchState
   when (punchState == UNKNOWN || punchState == NO_REFERENCE) $ do
     maybeObs ← liftIO (stereoObservation roger)
     obs      ← maybe (throwError NO_REFERENCE) (return . obsPos) maybeObs
     let (_, ballAngle) = polar (obs - xyOf (basePosition roger))
         target         = obs - unpolar ballRadius ballAngle
     maybe (throwError NO_REFERENCE)
-          (\p → lputSt roger {armSetpoint = (armSetpoint roger){right = p}})
+          (\p → mapStateL $ \r → r { armSetpoint = (armSetpoint r){right = p} })
           (invArmKinematics roger right target)
   let θError = mapArms (\i → i (armθ roger) - i (armSetpoint roger))
   when (right (extForce roger) /= Vec2D 0 0) $
@@ -110,13 +110,12 @@ punch = (>>= either giveUp (PunchState *=)) . runExceptT $ do
   when (armMax θError < θε && armMax (armθ' roger) < θ'ε) $
     throwError NO_REFERENCE
   return TRANSIENT
-  where giveUp s = do roger ← lgetSt
-                      lputSt roger { armSetpoint = homePosition }
+  where giveUp s = do mapStateL $ \r → r { armSetpoint = homePosition }
                       PunchState *= s
         armMax a = max (shoulder (right a)) (elbow (right a))
 
-chasepunch ∷ ( Lens Robot s,      Lens SearchState s, Lens TrackState s
-             , Lens ChaseState s, Lens PunchState s,  Lens PrDist s
+chasepunch ∷ ( Has Robot s,      Has SearchState s, Has TrackState s
+             , Has ChaseState s, Has PunchState s,  Has PrDist s
              , MonadState s m, MonadIO m
              ) ⇒ m ()
 chasepunch = get >>= \st →

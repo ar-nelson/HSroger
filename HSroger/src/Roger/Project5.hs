@@ -87,7 +87,7 @@ control roger st _ =
   do st' `With` roger' ← execStateT searchtrack (st `With` roger)
      obs ← stereoObservation roger'
      forM_ (maybeToList obs) print
-     return (roger', lput obs st')
+     return (roger', putL obs st')
 
 enterParams ∷ State → IO State
 enterParams = return

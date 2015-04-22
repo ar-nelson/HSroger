@@ -5,12 +5,21 @@
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UnicodeSyntax         #-}
 
-module Roger.TypedLens( Lens(..)
+module Roger.TypedLens( Has(..)
                       , (*.)
                       , (*=)
-                      , lgetSt
-                      , lgetsSt
-                      , lputSt
+                      , getsL
+                      , setL
+                      , mapL
+                      , getStateL
+                      , getsStateL
+                      , putStateL
+                      , putDebugL
+                      , setStateL
+                      , setDebugL
+                      , mapStateL
+                      , mapDebugL
+                      , lens
                       , LensRecord(..)
                       , With(..)
 ) where
@@ -24,8 +33,8 @@ module Roger.TypedLens( Lens(..)
 --
 -- Therefore, I've invented my own extremely-simple substitute. These typed
 -- lenses are effectively HLists, which use newtypes as record field names. Lens
--- is a typeclass, not a type, and a value of class `Lens Foo` has a field of
--- type Foo.
+-- ("Has") is a typeclass, not a type, and a value of class "Has Foo" has a
+-- field of type Foo.
 --
 -- Simple lenses are "snoc lists" (reverse cons lists), and can be constructed
 -- using the `With` type operator; the first element of a `With` chain should be
@@ -35,28 +44,51 @@ module Roger.TypedLens( Lens(..)
 
 import           Control.Monad.State
 
-class Lens τ α where
-  lget ∷ α → τ
-  lput ∷ τ → α → α
+class Has τ α where
+  getL ∷ α → τ
+  putL ∷ τ → α → α
 
-(*.) ∷ (Lens τ λ) ⇒ λ → (τ → τ') → τ'
-lens *. getter = getter (lget lens)
+getsL ∷ (Has τ λ) ⇒ (τ → τ') → λ → τ'
+getsL fn = fn . getL
 
-(*=) ∷ (Lens τ λ, MonadState λ μ) ⇒ (α → τ) → α → μ ()
-constructor *= value = lputSt (constructor value)
+mapL ∷ (Has τ λ) ⇒ (τ → τ) → λ → λ
+mapL fn l = putL (getsL fn l) l
 
-lgetSt ∷ (Lens τ λ, MonadState λ μ) ⇒ μ τ
-lgetSt = gets lget
+setL ∷ (Has τ λ) ⇒ λ → (τ' → τ) → τ' → λ
+setL l constructor v = putL (constructor v) l
 
-lgetsSt ∷ (Lens τ λ, MonadState λ μ) ⇒ (τ → α) → μ α
-lgetsSt f = gets (*. f)
+(*.) ∷ (Has τ λ) ⇒ λ → (τ → τ') → τ'
+(*.) = flip getsL
 
-lputSt ∷ (Lens τ λ, MonadState λ μ) ⇒ τ → μ ()
-lputSt = modify . lput
+(*=) ∷ (Has τ λ, MonadState λ μ) ⇒ (α → τ) → α → μ ()
+constructor *= value = putStateL (constructor value)
 
-instance Lens τ τ where
-  lget x = x
-  lput x _ = x
+getStateL ∷ (Has τ λ, MonadState λ μ) ⇒ μ τ
+getStateL = gets getL
+
+getsStateL ∷ (Has τ λ, MonadState λ μ) ⇒ (τ → α) → μ α
+getsStateL f = gets (*. f)
+
+putStateL ∷ (Has τ λ, MonadState λ μ) ⇒ τ → μ ()
+putStateL = modify . putL
+
+putDebugL ∷ (Show τ, Has τ λ, MonadState λ μ, MonadIO μ) ⇒ τ → μ ()
+putDebugL v = liftIO (print v) >> putStateL v
+
+mapStateL ∷ (Has τ λ, MonadState λ μ) ⇒ (τ → τ) → μ ()
+mapStateL = modify . mapL
+
+mapDebugL ∷ (Show τ, Has τ λ, MonadState λ μ, MonadIO μ) ⇒ (τ → τ) → μ ()
+mapDebugL f = getStateL >>= putDebugL . f
+
+setStateL ∷ (Has τ λ, MonadState λ μ) ⇒ (τ' → τ) → τ' → μ ()
+setStateL c v = modify (\l → setL l c v)
+
+setDebugL ∷ (Show τ, Has τ λ, MonadState λ μ, MonadIO μ) ⇒ (τ' → τ) → τ' → μ ()
+setDebugL c v' = liftIO (print v) >> putStateL v where v = c v'
+
+lens ∷ α → With LensRecord α
+lens a = LensRecord `With` a
 
 --------------------------------------------------------------------------------
 
@@ -64,13 +96,13 @@ infixl 2 `With`
 
 data LensRecord = LensRecord
 
-data τHead `With` τTail = τHead `With` τTail
+data tTail `With` tHead = tTail `With` tHead
 
-instance Lens τ (α `With` τ) where
-  lget (_ `With` h) = h
-  lput h (t `With` _) = t `With` h
+instance Has tHead (tTail `With` tHead) where
+  getL (_ `With` h) = h
+  putL h (t `With` _) = t `With` h
 
-instance Lens τ β ⇒ Lens τ (β `With` α) where
-  lget (t `With` _) = lget t
-  lput x (t `With` h) = lput x t `With` h
+instance Has τ tTail ⇒ Has τ (tTail `With` tHead) where
+  getL (t `With` _) = getL t
+  putL x (t `With` h) = putL x t `With` h
 

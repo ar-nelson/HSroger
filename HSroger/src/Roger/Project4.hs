@@ -42,29 +42,28 @@ initState = return $ LensRecord `With` SearchState UNKNOWN
 ε ∷ Double
 ε = 0.01
 
-search ∷ ( Lens Robot s, Lens SearchState s, Lens PrDist s
+search ∷ ( Has Robot s, Has SearchState s, Has PrDist s
          , MonadState s m, MonadIO m
          ) ⇒ m ()
-search = lgetsSt getSearchState >>= doSearch
+search = getsStateL getSearchState >>= doSearch
   where doSearch CONVERGED = return ()
         doSearch TRANSIENT =
-          do roger ← lgetSt
+          do roger ← getStateL
              let heading   = θOf (baseSetpoint roger)
                  baseθ     = θOf (basePosition roger)
                  eyeTarget = clampAngle (heading - baseθ)
-             lputSt roger { eyeSetpoint = mapPair (const eyeTarget) }
+             putStateL roger { eyeSetpoint = mapPair (const eyeTarget) }
              SearchState *= if abs (baseθ - heading) < ε
                                then CONVERGED
                                else TRANSIENT
         doSearch _ = maybe (SearchState *= NO_REFERENCE) setHeading
                        =<< sampleGazeDirection
         setHeading heading =
-          do roger ← lgetSt
-             lputSt (roger {baseSetpoint = (baseSetpoint roger){θOf = heading}})
+          do mapStateL (\r → r {baseSetpoint = (baseSetpoint r){θOf = heading}})
              doSearch TRANSIENT
 
-track ∷ (Lens Robot s, Lens TrackState s, MonadState s m, MonadIO m) ⇒ m ()
-track = do roger  ← lgetSt
+track ∷ (Has Robot s, Has TrackState s, MonadState s m, MonadIO m) ⇒ m ()
+track = do roger  ← getStateL
            let Robot{..} = roger
            avgRed ← liftIO (computeAverageRedPixel roger)
            let eye ∷ (∀ α. Pair α → α) → Double
@@ -78,15 +77,15 @@ track = do roger  ← lgetSt
            if isJust (left avgRed) || isJust (right avgRed)
               then if abs avgBaseError < ε
                       then do TrackState *= CONVERGED
-                              lputSt roger { eyeSetpoint = eyes }
+                              mapStateL $ \r → r { eyeSetpoint = eyes }
                       else do TrackState *= TRANSIENT
-                              lputSt roger { eyeSetpoint  = eyes
-                                           , baseSetpoint = base
-                                           }
+                              mapStateL $ \r → r { eyeSetpoint  = eyes
+                                                 , baseSetpoint = base
+                                                 }
               else TrackState *= NO_REFERENCE
 
-searchtrack ∷ ( Lens Robot s, Lens SearchState s, Lens TrackState s
-              , Lens PrDist s, MonadState s m, MonadIO m
+searchtrack ∷ ( Has Robot s, Has SearchState s, Has TrackState s , Has PrDist s
+              , MonadState s m, MonadIO m
               ) ⇒ m ()
 searchtrack = get >>= \st →
   case st *. getSearchState of
