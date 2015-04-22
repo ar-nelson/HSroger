@@ -67,9 +67,11 @@ foreign export ccall hs_project4_control      ∷ ControlFn Project4.State
 foreign export ccall hs_project4_enter_params ∷ ParamsFn Project4.State
 foreign export ccall hs_project4_init_state   ∷ IO (StablePtr Project4.State)
 
-foreign export ccall hs_project5_control      ∷ ControlFn Project5.State
-foreign export ccall hs_project5_enter_params ∷ ParamsFn Project5.State
-foreign export ccall hs_project5_init_state   ∷ IO (StablePtr Project5.State)
+foreign export ccall hs_project5_control         ∷ ControlFn Project5.State
+foreign export ccall hs_project5_enter_params    ∷ ParamsFn Project5.State
+foreign export ccall hs_project5_init_state      ∷ IO (StablePtr Project5.State)
+foreign export ccall hs_project5_get_observation ∷ StablePtr Project5.State
+                                                 → Ptr Observation → IO ()
 
 foreign export ccall hs_project6_control      ∷ ControlFn Project6.State
 foreign export ccall hs_project6_enter_params ∷ ParamsFn Project6.State
@@ -135,12 +137,16 @@ hs_project4_control      = controlFn Project4.control
 hs_project4_enter_params = paramsFn Project4.enterParams
 hs_project4_init_state   = Project4.initState >>= newStablePtr
 
-hs_project5_control      ∷ ControlFn Project5.State
-hs_project5_enter_params ∷ ParamsFn Project5.State
-hs_project5_init_state   ∷ IO (StablePtr Project5.State)
-hs_project5_control      = controlFn Project5.control
-hs_project5_enter_params = paramsFn Project5.enterParams
-hs_project5_init_state   = Project5.initState >>= newStablePtr
+hs_project5_control         ∷ ControlFn Project5.State
+hs_project5_enter_params    ∷ ParamsFn Project5.State
+hs_project5_init_state      ∷ IO (StablePtr Project5.State)
+hs_project5_get_observation ∷ StablePtr Project5.State → Ptr Observation → IO ()
+hs_project5_control         = controlFn Project5.control
+hs_project5_enter_params    = paramsFn Project5.enterParams
+hs_project5_init_state      = Project5.initState >>= newStablePtr
+hs_project5_get_observation stPtr obsPtr =
+  do st ← deRefStablePtr stPtr
+     poke obsPtr (Project5.getObservation st)
 
 hs_project6_control      ∷ ControlFn Project6.State
 hs_project6_enter_params ∷ ParamsFn Project6.State

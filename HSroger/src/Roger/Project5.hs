@@ -7,11 +7,12 @@ module Roger.Project5( State
                      , enterParams
                      , initState
                      , stereoObservation
+                     , getObservation
 ) where
 
 import           Control.Monad
 import           Control.Monad.State hiding (State)
-import           Data.Maybe          (maybeToList)
+import           Data.Maybe          (fromMaybe, maybeToList)
 import           Data.Vec
 import           Prelude             hiding (map, take)
 import           Roger.Project3      (computeAverageRedPixel)
@@ -29,14 +30,20 @@ type State = LensRecord `With` Maybe Observation
                         `With` TrackState
                         `With` PrDist
 
+defObs ∷ Observation
+defObs = Observation { obsPos = Vec2D 0 0
+                     , obsCov = mat22 0 0 0 0
+                     , obsTime = 0
+                     }
+
 initState ∷ IO State
-initState = return $ LensRecord `With` Just Observation { obsPos = Vec2D 0 0
-                                                        , obsCov = mat22 0 0 0 0
-                                                        , obsTime = 0
-                                                        }
+initState = return $ LensRecord `With` Just defObs
                                 `With` SearchState Unknown
                                 `With` TrackState  Unknown
                                 `With` prRedPrior
+
+getObservation ∷ State → Observation
+getObservation st = fromMaybe defObs (getL st)
 
 --------------------------------------------------------------------------------
 

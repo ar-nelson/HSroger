@@ -107,7 +107,12 @@ void project5_reset(Robot* roger) {
 void project5_enter_params() {
   project5_state = hs_project5_enter_params(project5_get_state());
 }
-void project5_visualize() {}
+void project5_visualize() {
+  Observation obs;
+  void draw_observation();
+  hs_project5_get_observation(project5_get_state(), &obs);
+  draw_observation(obs);
+}
 
 // -----------------------------------------------------------------------------
 // Project 6
