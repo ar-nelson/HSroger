@@ -10,7 +10,7 @@ module Roger.Sampling( PrDist(..)
 
 import           Control.Monad.State
 import           Prelude             hiding (sum)
-import           Roger.TypedLens
+import           Roger.Wire
 import           System.Random
 
 data PrDist = PrDist { prBinSize ∷ Double
@@ -30,20 +30,20 @@ prRedPrior = PrDist { prBinSize = (2.0 * pi) / nHeadings
                     , prBins    = replicate distBins (1.0/nHeadings)
                     }
 
-sampleGazeDirection ∷ (Has PrDist s, MonadState s m, MonadIO m)
-                    ⇒ m (Maybe Double)
+sampleGazeDirection ∷ (MonadIO m) ⇒ PrDist → Wire m a Double
 -- The original function contained a lot of dead code.
 -- Presumably it was meant to be improved by the student?
 --
--- This implementation takes and returns the distribution in case I want to
--- update it, but it currently returns the distribution unchanged.
-sampleGazeDirection =
-  do dist ← getStateL
-     rnd  ← liftIO $ randomRIO (0.0, prArea dist)
-     let accum i sum | sum < rnd = accum (i + 1) (sum + (prBins dist !! i))
-                     | otherwise = i
-         bin = fromIntegral (accum 0 0) ∷ Double
-     return $ if prArea dist < 0.02
-                 then Nothing
-                 else Just ((bin+0.5) * prBinSize dist - pi)
+-- This implementation treats the distribution as mutable state, but currently
+-- leaves it unchanged.
+sampleGazeDirection = stateWire (maybeWire (wire fn))
+  where fn _ = do dist ← get
+                  rnd  ← liftIO $ randomRIO (0.0, prArea dist)
+                  let accum i sum
+                        | sum < rnd = accum (i + 1) (sum + (prBins dist !! i))
+                        | otherwise = i
+                      bin = fromIntegral (accum 0 0) ∷ Double
+                  return $ if prArea dist < 0.02
+                              then Nothing
+                              else Just ((bin+0.5) * prBinSize dist - pi)
 

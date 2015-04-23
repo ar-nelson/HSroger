@@ -4,6 +4,7 @@
 module Roger.Project1(control) where
 
 import           Data.Vec
+import           Roger.Math
 import           Roger.Robot
 import           Roger.Types
 

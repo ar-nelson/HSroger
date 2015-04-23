@@ -5,12 +5,15 @@ module Roger.Project3( State
                      , enterParams
                      , initState
                      , computeAverageRedPixel
+                     , avgRedWire
                      , imageCoordToAngle
 ) where
 
 import           Control.Monad
+import           Control.Monad.Trans
 import           Roger.Robot
 import           Roger.Types
+import           Roger.Wire
 
 type State = ()
 
@@ -38,6 +41,11 @@ computeAverageRedPixel roger =
 imageCoordToAngle ∷ Double → Double
 imageCoordToAngle imageCoord =
   (imageCoord - focalLength) / focalLength * (pi / 4.0)
+
+avgRedWire ∷ (MonadIO m) ⇒ Wire m Robot (Pair Double)
+avgRedWire = maybeWire $ wire $ \roger →
+  do Pair l r ← liftIO (computeAverageRedPixel roger)
+     return (liftM2 Pair l r)
 
 --------------------------------------------------------------------------------
 

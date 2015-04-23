@@ -1,6 +1,7 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeOperators   #-}
-{-# LANGUAGE UnicodeSyntax   #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE UnicodeSyntax         #-}
 
 module Roger.Project5( State
                      , control
@@ -10,26 +11,23 @@ module Roger.Project5( State
                      , getObservation
 ) where
 
+import           Control.Arrow
+import           Control.Category
 import           Control.Monad
-import           Control.Monad.State hiding (State)
-import           Data.Maybe          (fromMaybe)
+import           Control.Monad.Reader
+import           Data.Maybe           (fromMaybe)
 import           Data.Vec
-import           Prelude             hiding (map, take)
+import           Prelude              hiding (id, map, take, (.))
 import           Roger.Math
-import           Roger.Project3      (computeAverageRedPixel, imageCoordToAngle)
-import           Roger.Project4      (SearchState (..), TrackState (..),
-                                      searchtrack)
+import           Roger.Project3       (avgRedWire, imageCoordToAngle)
+import           Roger.Project4       (searchtrack)
 import           Roger.Robot
-import           Roger.Sampling      (PrDist, prRedPrior)
-import           Roger.TypedLens
 import           Roger.Types
+import           Roger.Wire
 
 --------------------------------------------------------------------------------
 
-type State = LensRecord `With` Maybe Observation
-                        `With` SearchState
-                        `With` TrackState
-                        `With` PrDist
+type State = (Maybe Observation, Wire IO Robot Robot)
 
 defObs ∷ Observation
 defObs = Observation { obsPos = Vec2D 0 0
@@ -38,24 +36,23 @@ defObs = Observation { obsPos = Vec2D 0 0
                      }
 
 initState ∷ IO State
-initState = return $ LensRecord `With` Just defObs
-                                `With` SearchState Unknown
-                                `With` TrackState  Unknown
-                                `With` prRedPrior
+initState = return (Nothing, searchtrack >>^ fst)
 
 getObservation ∷ State → Observation
-getObservation st = fromMaybe defObs (getL st)
+getObservation st = fromMaybe defObs (fst st)
 
 --------------------------------------------------------------------------------
 
 σObs ∷ Double
 σObs = 0.01
 
-stereoObservation ∷ Robot → Double → IO (Maybe Observation)
-stereoObservation roger time = computeAverageRedPixel roger
-  <&> \avgRed → mapPairM (\i → i avgRed <&> imageCoordToAngle <&> (+ i eyeθ))
-  <&> \Pair { left = γL, right = γR } →
-    let λL   = (2 * baseline) / sq (sin (γR - γL))
+stereoObservation ∷ (MonadReader Time m, MonadIO m) ⇒ Wire m Robot Observation
+stereoObservation = (avgRedWire &&& id >>>) $ wire $
+
+  \(avgRed, Robot{..}) →
+
+    let Pair γL γR = mapPair (\i → i eyeθ + imageCoordToAngle (i avgRed))
+        λL         = (2 * baseline) / sq (sin (γR - γL))
 
         refb = vec4
           ( 2 * baseline * ((cos γR * cos γL) / sin (γR - γL))
@@ -71,23 +68,21 @@ stereoObservation roger time = computeAverageRedPixel roger
 
         _JW  = rotateMat22 (θOf basePosition) `multmm` _JB
 
-    in Observation { obsPos  = pack (take n2 refw)
-                   , obsCov  = (_JW `multmm` transpose _JW) `multms` sq σObs
-                   , obsTime = time
-                   }
-  where Robot{..} = roger
-        sq x      = x * x
+        obsPos  = pack (take n2 refw)
+        obsCov  = (_JW `multmm` transpose _JW) `multms` sq σObs
+
+    in liftM (\obsTime → Observation {..}) (asks timeSeconds)
+
+  where sq x = x * x
         m `multms` s = map (map (* s)) m -- matrix * scalar
-        (<&>) ∷ Functor f ⇒ f a → (a → b) → f b
-        (<&>) = flip fmap
 
 --------------------------------------------------------------------------------
 
 control ∷ Robot → State → Double → IO (Robot, State)
-control roger st time =
-  do st' `With` roger' ← execStateT searchtrack (st `With` roger)
-     obs ← stereoObservation roger' time
-     return (roger', putL obs st')
+control roger (_, w) time =
+  do (roger', w') ← runWire w roger
+     obs'         ← runReaderT (evalWire stereoObservation roger) (Time time)
+     return (fromMaybe roger roger', (obs', w'))
 
 enterParams ∷ State → IO State
 enterParams = return

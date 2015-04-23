@@ -1,52 +1,41 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UnicodeSyntax         #-}
 
 module Roger.Project7( State
                      , control
                      , enterParams
                      , initState
-                     , ChaseState(..)
-                     , PunchState(..)
                      , homePosition
                      , chase
                      , punch
                      , chasepunch
 ) where
 
-import           Control.Monad.Except
+import           Control.Applicative
+import           Control.Arrow        hiding (left, right)
+import           Control.Category
+import           Control.Monad.Reader
 import           Control.Monad.State  hiding (State)
+import           Data.Maybe           (fromMaybe)
 import           Data.Vec             hiding (get)
+import           Prelude              hiding (id, (.))
 import           Roger.Math
 import           Roger.Project2       (invArmKinematics)
-import           Roger.Project4       (SearchState (..), TrackState (..),
-                                       searchtrack, track)
+import           Roger.Project4       (searchtrack, track)
 import           Roger.Project5       (stereoObservation)
 import           Roger.Robot
-import           Roger.Sampling       (PrDist, prRedPrior)
 import           Roger.TypedLens
 import           Roger.Types
+import           Roger.Wire
 
-newtype ChaseState = ChaseState { getChaseState ∷ ControlStatus }
-newtype PunchState = PunchState { getPunchState ∷ ControlStatus }
+type State = Wire (ReaderT Time IO) Robot Robot
 
-instance Show ChaseState where show (ChaseState s) = "ChaseState " ++ show s
-instance Show PunchState where show (PunchState s) = "PunchState " ++ show s
-
-type State = LensRecord `With` ChaseState
-                        `With` PunchState
-                        `With` SearchState
-                        `With` TrackState
-                        `With` PrDist
+data CPState = SearchTrack | Chase | Punch deriving Eq
 
 initState ∷ IO State
-initState = return $ LensRecord `With` ChaseState  Unknown
-                                `With` PunchState  Unknown
-                                `With` SearchState Unknown
-                                `With` TrackState  Unknown
-                                `With` prRedPrior
+initState = return (chasepunch >>^ fst)
 
 --------------------------------------------------------------------------------
 
@@ -57,10 +46,13 @@ rε ∷ Double
 rε = ballRadius
 
 θε ∷ Double
-θε = 0.1
+θε = 0.4
 
 θ'ε ∷ Double
 θ'ε = 0.01
+
+armθε ∷ Double
+armθε = 0.1
 
 homePosition ∷ Pair (ArmPair Double)
 homePosition = Pair { left  = ArmPair { shoulder = pi
@@ -71,87 +63,84 @@ homePosition = Pair { left  = ArmPair { shoulder = pi
                                       }
                     }
 
+moveArmsToHomePosition ∷ Robot → Robot
+moveArmsToHomePosition roger = roger { armSetpoint = homePosition }
+
 --------------------------------------------------------------------------------
 
-chase ∷ (Has Robot s, Has ChaseState s, MonadState s m, MonadIO m) ⇒ m ()
-chase = (>>= either (setDebugL ChaseState) (setDebugL ChaseState)) . runExceptT$
+chase ∷ (MonadReader Time m, MonadIO m) ⇒ Wire m Robot (Robot, ControlStatus)
 
-  do -- Run the "track" action, by itself, to keep Roger's eyes on target.
-     get >>= \st → evalStateT track (st `With` TrackState Transient)
-     setRoger's ArmSetpoint homePosition
+chase = (track                    >>^ setL ArmSetpoint homePosition . fst)
+    >>> (id &&& stereoObservation >>^ updateSetpoint)
 
-     -- Get an observation of the ball.
-     roger@Robot{..} ← getStateL
-     maybeObs        ← liftIO (stereoObservation roger 0)
-     obs             ← maybe (throwError NoReference) (return . obsPos) maybeObs
+  where updateSetpoint (roger@Robot{..}, Observation{ obsPos = obs })
+          | rError <= rε && θError <= θε = (roger, Converged)
+          | otherwise                    = (roger{ baseSetpoint=sp }, Transient)
 
-     let (ballDist, ballAngle) = polar (obs - xyOf basePosition)
-         rError = abs (ballDist - targetDist)
-         θError = abs (ballAngle - θOf basePosition)
+          where (ballDist, ballAngle) = polar (obs - xyOf basePosition)
+                rError = abs (ballDist - targetDist)
+                θError = abs (ballAngle - θOf basePosition)
+                sp = VectorAndAngle { xyOf = obs - unpolar targetDist ballAngle
+                                    , θOf  = ballAngle
+                                    }
 
-     -- Update the base setpoint until Roger is within ε of the ball.
-     if rError <= rε && θError <= θε
-        then return Converged
-        else setRoger's BaseSetpoint VectorAndAngle
-               { xyOf = obs - unpolar targetDist ballAngle
-               , θOf  = ballAngle
-               }
-             >> return Transient
+punch ∷ (MonadReader Time m, MonadIO m)
+      ⇒ Wire (StateT ControlStatus m) Robot Robot
+punch = (id &&& stereoObservation >>> setPunchTarget >>> checkIfDone) <|> giveUp
 
-punch ∷ (Has Robot s, Has PunchState s, MonadState s m, MonadIO m) ⇒ m ()
-punch = (>>= either giveUp (setDebugL PunchState)) . runExceptT $
+  where setPunchTarget    = maybeWire $ arr $
+          \(roger@Robot{..}, Observation{ obsPos = obs }) →
+            let (_, ballAngle) = polar (obs - xyOf basePosition)
+                target         = obs - unpolar (ballRadius / 2) ballAngle
+            in liftM (\setp → roger {armSetpoint = armSetpoint {right = setp}})
+                     (invArmKinematics roger right target)
 
-  do roger@Robot{..} ← getStateL
-     punchState      ← getsStateL getPunchState
+        checkIfDone = checkForCollision
+                  <|> (ifWire armStillMoving >>> action (put Transient))
 
-     -- Punch if Roger sees the ball and is not yet punching it.
-     when (punchState == Unknown || punchState == NoReference) $
-       do maybeObs ← liftIO (stereoObservation roger 0)
-          obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
-          let (_, ballAngle) = polar (obs - xyOf basePosition)
-              target         = obs - unpolar ballRadius ballAngle
-          maybe (throwError NoReference)
-                (\p → setRoger's ArmSetpoint armSetpoint { right = p })
-                (invArmKinematics roger right target)
+        checkForCollision = ifWire (\r → right (extForce r) /= Vec2D 0 0)
+                        >>> arr moveArmsToHomePosition
+                        >>> action (put Converged)
 
-     -- Exit the "punch" state if Roger hits or misses the ball.
-     Robot{ armSetpoint = armSetpoint' } ← getStateL
-     let θError = mapArms (\i → i armθ - i armSetpoint')
-     when (right extForce /= Vec2D 0 0)                (throwError Converged)
-     when (armMax θError <= θε && armMax armθ' <= θ'ε) (throwError NoReference)
-     return Transient
+        armStillMoving Robot{..} = armMax θError > armθε || armMax armθ' > θ'ε
+          where θError   = mapArms (\i → i armθ - i armSetpoint)
+                armMax a = max (shoulder (right a)) (elbow (right a))
 
-  where giveUp s = do mapStateL $ \r → r { armSetpoint = homePosition }
-                      setDebugL PunchState s
-        armMax a = max (shoulder (right a)) (elbow (right a))
+        giveUp = moveArmsToHomePosition ^>> action (put NoReference)
 
-chasepunch ∷ ( Has Robot s,      Has SearchState s, Has TrackState s
-             , Has ChaseState s, Has PunchState s,  Has PrDist s
-             , MonadState s m, MonadIO m
-             ) ⇒ m ()
-chasepunch = get >>= \st →
-  case st *. getTrackState of
-    Converged → case st *. getChaseState of
-      Unknown   → chase
-      Transient → chase
-      Converged → case st *. getPunchState of
-        Unknown   → punch
-        Transient → punch
-        _ → do setDebugL SearchState Unknown
-               setDebugL TrackState  Unknown
-               setDebugL ChaseState  Unknown
-               setDebugL PunchState  Unknown
-      _ → do setDebugL SearchState Unknown
-             setDebugL TrackState  Unknown
-             setDebugL ChaseState  Unknown
-    _ → searchtrack
+chasepunch ∷ (MonadReader Time m, MonadIO m)
+           ⇒ Wire m Robot (Robot, ControlStatus)
+chasepunch = stateWire ((  (isState Punch       >>> doPunch)
+                       <|> (isState Chase       >>> doChase)
+                       <|> (isState SearchTrack >>> doSearchTrack)
+                        ) >>> second (second (wire put)) >>^ second fst
+                       ) SearchTrack
+
+  where doSearchTrack = searchtrack <|> (id &&& pure NoReference)
+                    >>^ second (id &&& transition)
+          where transition Converged = Chase
+                transition _         = SearchTrack
+
+        doChase = chase <|> (id &&& pure NoReference)
+              >>^ second (id &&& transition)
+          where transition Converged   = Punch
+                transition NoReference = SearchTrack
+                transition _           = Chase
+
+        doPunch = stateWire ( punch <|> id
+                          >>> id &&& wire (const get)
+                          >>> second (id &&& wire transition)) Unknown
+          where transition Converged   = put Unknown >> return Chase
+                transition NoReference = return SearchTrack
+                transition _           = return Punch
+
+        isState s = skip (wire (const get) >>> ifWire (== s))
 
 --------------------------------------------------------------------------------
 
 control ∷ Robot → State → Double → IO (Robot, State)
-control roger st _ =
-  do st' `With` roger' ← execStateT chasepunch (st `With` roger)
-     return (roger', st')
+control roger st t = do (roger', st') ← runReaderT (runWire st roger) (Time t)
+                        return (fromMaybe roger roger', st')
 
 enterParams ∷ State → IO State
 enterParams = return

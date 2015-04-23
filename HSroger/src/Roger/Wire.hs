@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
 {-# LANGUAGE UnicodeSyntax         #-}
 
 module Roger.Wire(module Roger.Wire) where
@@ -75,8 +76,8 @@ instance (Monad m) ⇒ Alternative (Wire m a) where
 wire ∷ (Monad m) ⇒ (a → m b) → Wire m a b
 wire fn = w where w = Wire (liftM (\b → (Just b, w)) . fn)
 
-ifWire ∷ (Monad m) ⇒ Wire m Bool ()
-ifWire = maybeWire (arr (\b → if b then Just () else Nothing))
+ifWire ∷ (Monad m) ⇒ (a → Bool) → Wire m a a
+ifWire fn = maybeWire (arr (\a → if fn a then Just a else Nothing))
 
 maybeWire ∷ (Monad m) ⇒ Wire m a (Maybe b) → Wire m a b
 maybeWire w = Wire $ \a →
@@ -87,6 +88,18 @@ stateWire ∷ (Monad m) ⇒ Wire (StateT s m) a b → s → Wire m a b
 stateWire w s = Wire $ \a →
   do ((b, w'), s') ← runStateT (runWire w a) s
      return (b, stateWire w' s')
+
+skip ∷ (Arrow arr) ⇒ arr a b → arr a a
+skip a = id &&& a >>^ fst
+
+action ∷ (Monad m) ⇒ m () → Wire m a a
+action = skip . wire . const
+
+debug ∷ (MonadIO m, Show a) ⇒ Wire m a a
+debug = skip (wire (liftIO . print))
+
+debugMsg ∷ (MonadIO m, Show a) ⇒ String → Wire m a a
+debugMsg msg = skip (wire (\a → liftIO (putStrLn (msg ++ show a))))
 
 --------------------------------------------------------------------------------
 
