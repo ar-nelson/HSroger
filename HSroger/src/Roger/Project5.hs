@@ -12,10 +12,10 @@ module Roger.Project5( State
 
 import           Control.Monad
 import           Control.Monad.State hiding (State)
-import           Data.Maybe          (fromMaybe, maybeToList)
+import           Data.Maybe          (fromMaybe)
 import           Data.Vec
 import           Prelude             hiding (map, take)
-import           Roger.Project3      (computeAverageRedPixel)
+import           Roger.Project3      (computeAverageRedPixel, imageCoordToAngle)
 import           Roger.Project4      (SearchState (..), TrackState (..),
                                       searchtrack)
 import           Roger.Robot
@@ -47,19 +47,21 @@ getObservation st = fromMaybe defObs (getL st)
 
 --------------------------------------------------------------------------------
 
-σobs ∷ Double
-σobs = 0.025
+σObs ∷ Double
+σObs = 0.01
 
 stereoObservation ∷ Robot → Double → IO (Maybe Observation)
-stereoObservation roger time = computeAverageRedPixel roger <&> \avgRed →
-  mapPairM (\i → fmap (i eyeθ +) (i avgRed)) <&> \Pair{left = γL, right = γR} →
-
+stereoObservation roger time = computeAverageRedPixel roger
+  <&> \avgRed → mapPairM (\i → i avgRed <&> imageCoordToAngle <&> (+ i eyeθ))
+  <&> \Pair { left = γL, right = γR } →
     let λL   = (2 * baseline) / sq (sin (γR - γL))
 
-        refb = (2 * baseline * ((cos γR * cos γL) / sin (γR - γL)))
-            :. (baseline + 2 * baseline * ((cos γR * sin γL) / sin (γR - γL)))
-            :. 0
-            :. 1 :. ()
+        refb = fromList
+          [ 2 * baseline * ((cos γR * cos γL) / sin (γR - γL))
+          , 2 * baseline * ((cos γR * sin γL) / sin (γR - γL)) + baseline
+          , 0
+          , 1
+          ] ∷ Vec4 Double
 
         refw = constructwTb basePosition `multmv` refb
 
@@ -72,8 +74,8 @@ stereoObservation roger time = computeAverageRedPixel roger <&> \avgRed →
 
         _JW  = wRb `multmm` _JB
 
-    in Observation { obsPos  = pack $ take n2 refw
-                   , obsCov  = (_JW `multmm` transpose _JW) `multms` σobs
+    in Observation { obsPos  = pack (take n2 refw)
+                   , obsCov  = (_JW `multmm` transpose _JW) `multms` sq σObs
                    , obsTime = time
                    }
   where Robot{..} = roger
@@ -89,7 +91,6 @@ control ∷ Robot → State → Double → IO (Robot, State)
 control roger st time =
   do st' `With` roger' ← execStateT searchtrack (st `With` roger)
      obs ← stereoObservation roger' time
-     forM_ (maybeToList obs) print
      return (roger', putL obs st')
 
 enterParams ∷ State → IO State

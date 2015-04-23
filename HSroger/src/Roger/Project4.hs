@@ -54,14 +54,15 @@ search = getsStateL getSearchState >>= doSearch
              let heading   = θOf (baseSetpoint roger)
                  baseθ     = θOf (basePosition roger)
                  eyeTarget = clampAngle (heading - baseθ)
-             putStateL roger { eyeSetpoint = mapPair (const eyeTarget) }
+             setRoger's EyeSetpoint (mapPair (const eyeTarget))
              setDebugL SearchState $ if abs (baseθ - heading) < ε
                                         then Converged
                                         else Transient
         doSearch _ = maybe (setDebugL SearchState NoReference) setHeading
                        =<< sampleGazeDirection
         setHeading heading =
-          do mapStateL (\r → r {baseSetpoint = (baseSetpoint r){θOf = heading}})
+          do roger ← getStateL
+             setRoger's BaseSetpoint (baseSetpoint roger) { θOf = heading }
              doSearch Transient
 
 track ∷ (Has Robot s, Has TrackState s, MonadState s m, MonadIO m) ⇒ m ()
@@ -72,18 +73,15 @@ track = do roger  ← getStateL
                eye i = i eyeθ - θError
                  where θError = maybe 0.0 (negate . imageCoordToAngle) (i avgRed)
                avgBaseError = (0 - left eyeθ - right eyeθ) / 2.0
-               eyes = mapPair eye
                base = baseSetpoint
                  { θOf = clampAngle (θOf basePosition - avgBaseError) }
 
            if isJust (left avgRed) || isJust (right avgRed)
-              then if abs avgBaseError < ε
-                      then do setDebugL TrackState Converged
-                              mapStateL $ \r → r { eyeSetpoint = eyes }
-                      else do setDebugL TrackState Transient
-                              mapStateL $ \r → r { eyeSetpoint  = eyes
-                                                 , baseSetpoint = base
-                                                 }
+              then setRoger's EyeSetpoint (mapPair eye) >>
+                   if abs avgBaseError < ε
+                      then setDebugL TrackState Converged
+                      else setDebugL TrackState Transient >>
+                           setRoger's BaseSetpoint base
               else TrackState *= NoReference
 
 searchtrack ∷ ( Has Robot s, Has SearchState s, Has TrackState s , Has PrDist s

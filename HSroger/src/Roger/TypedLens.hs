@@ -54,8 +54,8 @@ getsL fn = fn . getL
 mapL ∷ (Has τ λ) ⇒ (τ → τ) → λ → λ
 mapL fn l = putL (getsL fn l) l
 
-setL ∷ (Has τ λ) ⇒ λ → (τ' → τ) → τ' → λ
-setL l constructor v = putL (constructor v) l
+setL ∷ (Has τ λ) ⇒ (τ' → τ) → τ' → λ → λ
+setL constructor v = putL (constructor v)
 
 (*.) ∷ (Has τ λ) ⇒ λ → (τ → τ') → τ'
 (*.) = flip getsL
@@ -82,7 +82,7 @@ mapDebugL ∷ (Show τ, Has τ λ, MonadState λ μ, MonadIO μ) ⇒ (τ → τ)
 mapDebugL f = getStateL >>= putDebugL . f
 
 setStateL ∷ (Has τ λ, MonadState λ μ) ⇒ (τ' → τ) → τ' → μ ()
-setStateL c v = modify (\l → setL l c v)
+setStateL c v = modify (setL c v)
 
 setDebugL ∷ (Show τ, Has τ λ, MonadState λ μ, MonadIO μ) ⇒ (τ' → τ) → τ' → μ ()
 setDebugL c v' = liftIO (print v) >> putStateL v where v = c v'
