@@ -24,6 +24,8 @@ module Roger.TypedLens( Has(..)
                       , With(..)
 ) where
 
+import           Control.Monad.State
+
 --------------------------------------------------------------------------------
 -- TYPED LENSES
 --
@@ -41,8 +43,6 @@ module Roger.TypedLens( Has(..)
 -- the LensRecord type/constructor, which is equivalent to ().
 --
 -- * https://ro-che.info/articles/2014-04-24-lens-unidiomatic
-
-import           Control.Monad.State
 
 class Has τ α where
   getL ∷ α → τ
