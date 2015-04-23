@@ -35,7 +35,7 @@ type State = Wire (ReaderT Time IO) Robot Robot
 data CPState = SearchTrack | Chase | Punch deriving Eq
 
 initState ∷ IO State
-initState = return (chasepunch >>^ fst)
+initState = return (setup <|> (chasepunch >>^ fst))
 
 --------------------------------------------------------------------------------
 
@@ -144,6 +144,14 @@ chasepunch = stateWire ((  (isState Punch       >>> doPunch)
                 transition _           = return Punch
 
         isState s = skip (wire (const get) >>> ifWire (== s))
+
+setup ∷ (MonadIO m) ⇒ Wire m Robot Robot
+setup = stateWire (skip (wire (const get) >>> ifWire id)
+               >>> action (liftIO (putStrLn "Doing initial setup..."))
+               >>> arr (\r → r { baseSetpoint = basePosition r
+                               , armSetpoint  = armθ r
+                               })
+               >>> action (put False)) True
 
 --------------------------------------------------------------------------------
 

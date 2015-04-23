@@ -4,7 +4,9 @@ HSroger/a.out
 HSroger/build/
 HSroger/include/
 HSroger/lib/
-RogerProjects/x
+x
+roger
+simulator
 *.a
 *.so
 *.o

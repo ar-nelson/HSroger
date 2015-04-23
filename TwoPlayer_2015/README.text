@@ -1,0 +1,36 @@
+STEPS FOR COMPILING THE TWO PLAYER SIMULATOR
+Spring 2015 - MWL
+
+1. Unzip TwoPlayer.zip
+
+2. Overwrite projects 1-8 in RogerProjects with your code. Be sure to not overwrite project 9, as it contains an additional file needed for 2 player. Simply copy your project9.c into the project 9 folder.
+
+3. Go to RogerSimulator. run make clean; make
+
+4. Go to RogerClient run make clean; make
+
+5. Copy the generated libraries to RogerProjects. In the RogerProjects Directory you can run:
+       cp ../RogerSimulator/lib/simulator.a lib/
+       cp ../RogerClient/lib/SocketComm.a lib/
+
+The above steps need to be done only once.
+
+6. You cannot use any drawing utilities in the 2 player sim. Comment out any calls to draw_observation etc. you use in projectX_visualize(roger).
+
+7. Compile RogerProjects by running make clean; make
+This will generate an executable named roger
+
+STEPS FOR RUNNING THE SIMULATOR
+
+1. Open three terminal windows.
+2. In the first window, change the current directory to RogerSimulator. In the other two windows, change the directory to RogerProjects.
+3. In the first window run: ./simulator 2
+    This starts up the two-player simulator. However, the simulator will not display until it has connection from two different rogers.
+4. In the second window run: ./roger 127.0.0.1 8000
+5. In the third window run: ./roger 127.0.0.1 8001
+
+This will start the simulator with two Rogers.
+
+The simulator has two modes: Chase_Punch (which calls your project 7 chase punch routines) and Pong (which will call your implementation in Project 9)
+
+GOOD LUCK!
