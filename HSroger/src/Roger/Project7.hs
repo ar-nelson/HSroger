@@ -39,20 +39,20 @@ initState = return (chasepunch >>^ fst)
 
 --------------------------------------------------------------------------------
 
-targetDist ∷ Double
-targetDist = shoulder armLength + elbow armLength + baseRadius
+punchDist ∷ Double
+punchDist = shoulder armLength + elbow armLength
 
-rε ∷ Double
-rε = ballRadius
+setptDist ∷ Double
+setptDist = ballRadius
 
-θε ∷ Double
-θε = 0.4
+baseθε ∷ Double
+baseθε = 0.4
 
 θ'ε ∷ Double
 θ'ε = 0.01
 
-armθε ∷ Double
-armθε = 0.1
+θε ∷ Double
+θε = 0.1
 
 homePosition ∷ Pair (ArmPair Double)
 homePosition = Pair { left  = ArmPair { shoulder = pi
@@ -74,21 +74,28 @@ chase = (track                    >>^ setL ArmSetpoint homePosition . fst)
     >>> (id &&& stereoObservation >>^ updateSetpoint)
 
   where updateSetpoint (roger@Robot{..}, Observation{ obsPos = obs })
-          | rError <= rε && θError <= θε = (roger, Converged)
-          | otherwise                    = (roger{ baseSetpoint=sp }, Transient)
+          | ballDist <= punchDist &&
+            ballDist >= setptDist &&
+            θError   <= baseθε     = (roger, Converged)
+          | otherwise              = (roger { baseSetpoint = sp }, Transient)
 
           where (ballDist, ballAngle) = polar (obs - xyOf basePosition)
-                rError = abs (ballDist - targetDist)
                 θError = abs (ballAngle - θOf basePosition)
-                sp = VectorAndAngle { xyOf = obs - unpolar targetDist ballAngle
+                sp = VectorAndAngle { xyOf = obs - unpolar setptDist ballAngle
                                     , θOf  = ballAngle
                                     }
 
 punch ∷ (MonadReader Time m, MonadIO m)
       ⇒ Wire (StateT ControlStatus m) Robot Robot
-punch = (id &&& stereoObservation >>> setPunchTarget >>> checkIfDone) <|> giveUp
+punch = lockBasePosition
+    >>> (ifAlreadySetTarget >>> checkIfDone)
+    <|> (id &&& stereoObservation >>> setPunchTarget >>> checkIfDone)
+    <|> giveUp
 
-  where setPunchTarget    = maybeWire $ arr $
+  where ifAlreadySetTarget =
+          skip (wire (const get) >>> ifWire (`elem` [Transient, Converged]))
+
+        setPunchTarget = maybeWire $ arr $
           \(roger@Robot{..}, Observation{ obsPos = obs }) →
             let (_, ballAngle) = polar (obs - xyOf basePosition)
                 target         = obs - unpolar (ballRadius / 2) ballAngle
@@ -102,9 +109,11 @@ punch = (id &&& stereoObservation >>> setPunchTarget >>> checkIfDone) <|> giveUp
                         >>> arr moveArmsToHomePosition
                         >>> action (put Converged)
 
-        armStillMoving Robot{..} = armMax θError > armθε || armMax armθ' > θ'ε
+        armStillMoving Robot{..} = armMax θError > θε || armMax armθ' > θ'ε
           where θError   = mapArms (\i → i armθ - i armSetpoint)
                 armMax a = max (shoulder (right a)) (elbow (right a))
+
+        lockBasePosition = arr (\r@Robot{..} → r {baseSetpoint = basePosition})
 
         giveUp = moveArmsToHomePosition ^>> action (put NoReference)
 
