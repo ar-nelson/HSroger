@@ -15,6 +15,7 @@ import           Control.Monad.State hiding (State)
 import           Data.Maybe          (fromMaybe)
 import           Data.Vec
 import           Prelude             hiding (map, take)
+import           Roger.Math
 import           Roger.Project3      (computeAverageRedPixel, imageCoordToAngle)
 import           Roger.Project4      (SearchState (..), TrackState (..),
                                       searchtrack)
@@ -32,7 +33,7 @@ type State = LensRecord `With` Maybe Observation
 
 defObs ∷ Observation
 defObs = Observation { obsPos = Vec2D 0 0
-                     , obsCov = mat22 0 0 0 0
+                     , obsCov = mat22 (0, 0, 0, 0)
                      , obsTime = 0
                      }
 
@@ -56,30 +57,25 @@ stereoObservation roger time = computeAverageRedPixel roger
   <&> \Pair { left = γL, right = γR } →
     let λL   = (2 * baseline) / sq (sin (γR - γL))
 
-        refb = fromList
-          [ 2 * baseline * ((cos γR * cos γL) / sin (γR - γL))
+        refb = vec4
+          ( 2 * baseline * ((cos γR * cos γL) / sin (γR - γL))
           , 2 * baseline * ((cos γR * sin γL) / sin (γR - γL)) + baseline
           , 0
           , 1
-          ] ∷ Vec4 Double
-
+          )
         refw = constructwTb basePosition `multmv` refb
 
-        _JB  = mat22 (sq (cos γR))     (-(sq (cos γL)))
-                     (sin γR * cos γR) ((-(sin γL)) * cos γL)
-               `multms` λL
+        _JB  = mat22 ( sq (cos γR),     -(sq (cos γL))
+                     , sin γR * cos γR, -(sin γL * cos γL)
+                     ) `multms` λL
 
-        wRb  = mat22 (cos baseθ) (-(sin baseθ))
-                     (sin baseθ) (cos baseθ)
-
-        _JW  = wRb `multmm` _JB
+        _JW  = rotateMat22 (θOf basePosition) `multmm` _JB
 
     in Observation { obsPos  = pack (take n2 refw)
                    , obsCov  = (_JW `multmm` transpose _JW) `multms` sq σObs
                    , obsTime = time
                    }
   where Robot{..} = roger
-        baseθ     = θOf basePosition
         sq x      = x * x
         m `multms` s = map (map (* s)) m -- matrix * scalar
         (<&>) ∷ Functor f ⇒ f a → (a → b) → f b

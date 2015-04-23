@@ -18,6 +18,7 @@ module Roger.Project4( State
 
 import           Control.Monad.State hiding (State)
 import           Data.Maybe          (isJust)
+import           Roger.Math
 import           Roger.Project3      (computeAverageRedPixel, imageCoordToAngle)
 import           Roger.Robot
 import           Roger.Sampling
@@ -50,9 +51,9 @@ search ∷ ( Has Robot s, Has SearchState s, Has PrDist s
 search = getsStateL getSearchState >>= doSearch
   where doSearch Converged = return ()
         doSearch Transient =
-          do roger ← getStateL
-             let heading   = θOf (baseSetpoint roger)
-                 baseθ     = θOf (basePosition roger)
+          do Robot{..} ← getStateL
+             let heading   = θOf baseSetpoint
+                 baseθ     = θOf basePosition
                  eyeTarget = clampAngle (heading - baseθ)
              setRoger's EyeSetpoint (mapPair (const eyeTarget))
              setDebugL SearchState $ if abs (baseθ - heading) < ε
@@ -66,8 +67,7 @@ search = getsStateL getSearchState >>= doSearch
              doSearch Transient
 
 track ∷ (Has Robot s, Has TrackState s, MonadState s m, MonadIO m) ⇒ m ()
-track = do roger  ← getStateL
-           let Robot{..} = roger
+track = do roger@Robot{..} ← getStateL
            avgRed ← liftIO (computeAverageRedPixel roger)
            let eye ∷ (∀ α. Pair α → α) → Double
                eye i = i eyeθ - θError
@@ -90,8 +90,8 @@ searchtrack ∷ ( Has Robot s, Has SearchState s, Has TrackState s , Has PrDist 
 searchtrack = get >>= \st →
   case st *. getSearchState of
     Unknown   → case st *. getTrackState of
-                    NoReference → msg "SEARCH" >> search
-                    _            → track
+      NoReference → msg "SEARCH" >> search
+      _           → track
     Converged → msg "TRACK" >> setDebugL SearchState Unknown >> track
     _         → search
   where msg s = liftIO (putStrLn ("Switched to " ++ s ++ " mode."))

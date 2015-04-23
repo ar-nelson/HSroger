@@ -19,6 +19,7 @@ module Roger.Project7( State
 import           Control.Monad.Except
 import           Control.Monad.State  hiding (State)
 import           Data.Vec             hiding (get)
+import           Roger.Math
 import           Roger.Project2       (invArmKinematics)
 import           Roger.Project4       (SearchState (..), TrackState (..),
                                        searchtrack, track)
@@ -73,43 +74,53 @@ homePosition = Pair { left  = ArmPair { shoulder = pi
 --------------------------------------------------------------------------------
 
 chase ∷ (Has Robot s, Has ChaseState s, MonadState s m, MonadIO m) ⇒ m ()
-chase = (>>= either (setDebugL ChaseState) (setDebugL ChaseState)) . runExceptT $ do
-  st    ← get
-  evalStateT track (st `With` TrackState Transient)
-  roger    ← getStateL
-  maybeObs ← liftIO (stereoObservation roger 0)
-  obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
-  let ballOffset            = obs - xyOf (basePosition roger)
-      (ballDist, ballAngle) = polar ballOffset
-      rError = abs (ballDist - targetDist)
-      θError = abs (ballAngle - θOf (basePosition roger))
-  mapStateL (\r → r { armSetpoint = homePosition })
-  if rError <= rε && θError <= θε
-     then return Converged
-     else let setPt = VectorAndAngle { xyOf = obs - unpolar targetDist ballAngle
-                                     , θOf  = ballAngle
-                                     }
-          in mapStateL (\r → r { baseSetpoint = setPt })
-             -- >> liftIO (putStrLn ("Ball Angle: " ++ show ballAngle))
+chase = (>>= either (setDebugL ChaseState) (setDebugL ChaseState)) . runExceptT$
+
+  do -- Run the "track" action, by itself, to keep Roger's eyes on target.
+     get >>= \st → evalStateT track (st `With` TrackState Transient)
+     setRoger's ArmSetpoint homePosition
+
+     -- Get an observation of the ball.
+     roger@Robot{..} ← getStateL
+     maybeObs        ← liftIO (stereoObservation roger 0)
+     obs             ← maybe (throwError NoReference) (return . obsPos) maybeObs
+
+     let (ballDist, ballAngle) = polar (obs - xyOf basePosition)
+         rError = abs (ballDist - targetDist)
+         θError = abs (ballAngle - θOf basePosition)
+
+     -- Update the base setpoint until Roger is within ε of the ball.
+     if rError <= rε && θError <= θε
+        then return Converged
+        else setRoger's BaseSetpoint VectorAndAngle
+               { xyOf = obs - unpolar targetDist ballAngle
+               , θOf  = ballAngle
+               }
              >> return Transient
 
 punch ∷ (Has Robot s, Has PunchState s, MonadState s m, MonadIO m) ⇒ m ()
-punch = (>>= either giveUp (setDebugL PunchState)) . runExceptT $ do
-  roger      ← getStateL
-  let Robot{..} = roger
-  punchState ← getsStateL getPunchState
-  when (punchState == Unknown || punchState == NoReference) $ do
-    maybeObs ← liftIO (stereoObservation roger 0)
-    obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
-    let (_, ballAngle) = polar (obs - xyOf basePosition)
-        target         = obs - unpolar ballRadius ballAngle
-    maybe (throwError NoReference)
-          (\p → mapStateL $ \r → r { armSetpoint = armSetpoint { right = p } })
-          (invArmKinematics roger right target)
-  let θError = mapArms (\i → i armθ - i armSetpoint)
-  when (right extForce /= Vec2D 0 0)              (throwError Converged)
-  when (armMax θError < θε && armMax armθ' < θ'ε) (throwError NoReference)
-  return Transient
+punch = (>>= either giveUp (setDebugL PunchState)) . runExceptT $
+
+  do roger@Robot{..} ← getStateL
+     punchState      ← getsStateL getPunchState
+
+     -- Punch if Roger sees the ball and is not yet punching it.
+     when (punchState == Unknown || punchState == NoReference) $
+       do maybeObs ← liftIO (stereoObservation roger 0)
+          obs      ← maybe (throwError NoReference) (return . obsPos) maybeObs
+          let (_, ballAngle) = polar (obs - xyOf basePosition)
+              target         = obs - unpolar ballRadius ballAngle
+          maybe (throwError NoReference)
+                (\p → setRoger's ArmSetpoint armSetpoint { right = p })
+                (invArmKinematics roger right target)
+
+     -- Exit the "punch" state if Roger hits or misses the ball.
+     Robot{ armSetpoint = armSetpoint' } ← getStateL
+     let θError = mapArms (\i → i armθ - i armSetpoint')
+     when (right extForce /= Vec2D 0 0)                (throwError Converged)
+     when (armMax θError <= θε && armMax armθ' <= θ'ε) (throwError NoReference)
+     return Transient
+
   where giveUp s = do mapStateL $ \r → r { armSetpoint = homePosition }
                       setDebugL PunchState s
         armMax a = max (shoulder (right a)) (elbow (right a))

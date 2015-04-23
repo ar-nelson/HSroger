@@ -12,6 +12,7 @@ module Roger.Project2( State
 import           Control.Arrow ((***))
 import           Data.Vec
 import           Prelude       hiding (take)
+import           Roger.Math
 import           Roger.Robot
 import           Roger.Types
 
@@ -28,22 +29,22 @@ fwdArmKinematics ∷ Robot → (∀ α. Pair α → α) → Vec2D
 fwdArmKinematics roger limb = pack (take n2 refb)
 
   where refb = wT3 `multmv` refw
-        refw = 0 :. 0 :. 0 :. 1 :. ()
+        refw = vec4 (0, 0, 0, 1)
 
         wT3  = wT0 `multmm` _0T3
         wT0  = wTb `multmm` bT0
         wTb  = constructwTb (basePosition roger)
 
-        bT0  = mat44 1 0 0 (limb armOffset)
-                     0 1 0 0
-                     0 0 1 0
-                     0 0 0 1
-
-        _0T3 = mat44 c12 (-s12) 0 (l1*c1 + l2*c12)
-                     s12 c12    0 (l1*s1 + l2*s12)
-                     0   0      1 0
-                     0   0      0 1
-
+        bT0  = mat44 ( 1, 0, 0, limb armOffset
+                     , 0, 1, 0, 0
+                     , 0, 0, 1, 0
+                     , 0, 0, 0, 1
+                     )
+        _0T3 = mat44 ( c12, -s12, 0, l1 * c1 + l2 * c12
+                     , s12, c12 , 0, l1 * s1 + l2 * s12
+                     , 0  , 0   , 1, 0
+                     , 0  , 0   , 0, 1
+                     )
         c1  = cos (shoulder θ)
         s1  = sin (shoulder θ)
         c12 = cos (shoulder θ + elbow θ)
@@ -57,7 +58,7 @@ fwdArmKinematics roger limb = pack (take n2 refb)
 invArmKinematics ∷ Robot → (∀ α. Pair α → α) → Vec2D → Maybe (ArmPair Double)
 invArmKinematics roger limb target =
   do bTw ← invert (constructwTb (basePosition roger))
-     let refw = xOf target :. (yOf target + limb armOffset) :. 0 :. 1 :. ()
+     let refw = vec4 (xOf target, yOf target + limb armOffset, 0, 1)
          refb = bTw `multmv` refw
          r2   = sq (xOf refb) + sq (yOf refb)
          c2'  = (r2 - sq l1 - sq l2) / (2 * l1 * l2)
@@ -68,7 +69,7 @@ invArmKinematics roger limb target =
          k2 = both (* l2) s2
          α  = both (`atan2` k1) k2
          θ  = (`both` (fst, snd)) $ \i →
-                ArmPair { shoulder = atan2 (yOf refb) (xOf refb) - i α
+                ArmPair { shoulder = snd (polar refb) - i α
                         , elbow    = atan2 (i s2) c2
                         }
 
