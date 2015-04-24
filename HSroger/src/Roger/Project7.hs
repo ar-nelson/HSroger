@@ -71,6 +71,7 @@ moveArmsToHomePosition roger = roger { armSetpoint = homePosition }
 chase ∷ (MonadReader Time m, MonadIO m) ⇒ Wire m Robot (Robot, ControlStatus)
 
 chase = (track                    >>^ setL ArmSetpoint homePosition . fst)
+    >>> skip (arr basePosition    >>> debugMsg "Pos: ")
     >>> (id &&& stereoObservation >>^ updateSetpoint)
 
   where updateSetpoint (roger@Robot{..}, Observation{ obsPos = obs })
