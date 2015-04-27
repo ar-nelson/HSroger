@@ -17,13 +17,15 @@ import           Control.Applicative
 import           Control.Arrow        hiding (left, right)
 import           Control.Category
 import           Control.Monad.Reader
+import           Data.Foldable
+import           Data.Maybe           (catMaybes)
 import qualified Data.Vec             as V
 import           Prelude              hiding (id, (.))
 import           Roger.Math
 import           Roger.Project2       (invArmKinematics)
 import           Roger.Project3       (avgRedWire, imageCoordToAngle)
 import           Roger.Project5       (stereoObservation)
-import           Roger.Project6       (blankEstimate, kalmanFilter)
+import           Roger.Project6       (blankEstimate)
 import           Roger.Project7       (homePosition)
 import           Roger.Robot
 import           Roger.Types
@@ -33,38 +35,13 @@ import           System.Random
 
 type State = (Wire (ReaderT Time IO) Robot (Robot, Estimate), Estimate)
 
-{-
-data Sample = Sample { smpObs  ∷ Observation
-                     , smpDist ∷ Double
-                     , smpVel  ∷ V.Vec2D
-                     }
--}
-
-defObs ∷ Observation
-defObs = Observation { obsPos = V.Vec2D 0 0
-                     , obsCov = mat22 (0, 0, 0, 0)
-                     , obsTime = 0
-                     }
-
 getEstimate ∷ State → Estimate
 getEstimate = snd
 
-{-
-getVelocity ∷ State → V.Vec2D
-getVelocity st = maybe (V.Vec2D 0 0) smpVel (snd st)
--}
 
 initState ∷ IO State
 initState = return (pong, blankEstimate)
 
---------------------------------------------------------------------------------
-
-bufferDistance ∷ Double
-bufferDistance = shoulder armLength + elbow armLength
-{-
-sampleLifetime ∷ Double
-sampleLifetime = 0.01 -- seconds
--}
 baseHome ∷ VectorAndAngle
 baseHome = VectorAndAngle { xyOf = V.Vec2D (-4.0) 0.0
                           , θOf  = 0.0
@@ -73,28 +50,28 @@ baseHome = VectorAndAngle { xyOf = V.Vec2D (-4.0) 0.0
 --------------------------------------------------------------------------------
 
 eyeController ∷ (MonadReader Time m, MonadIO m)
-              ⇒ Wire m Robot (Robot, Maybe Observation)
-eyeController = ballSeenPath <|> ballUnseenPath
+              ⇒ Wire m Robot (Robot, (Maybe Observation, V.Vec2D))
+eyeController = stateWire (Nothing, replicate 5 Nothing)
+                          (ballSeenPath <|> ballUnseenPath)
+                          >>^ second (second avgVels)
 
-  where ballSeenPath = proc roger →
+  where ballSeenPath = proc (roger, (lastObs, vels)) →
           do roger'   ← foveate           -< roger
              obs      ← stereoObservation -< roger'
-             {-samples' ← cleanupSamples    -< samples
-             let tempSample = Sample { smpObs  = obs
-                                     , smpDist = dist roger obs
-                                     , smpVel  = V.Vec2D 0 0
-                                     }
-                 sample = tempSample { smpVel = vel }
-                 vel    = guessBallVelocity (tempSample:samples')
-             returnA -< ((roger', Just sample), sample:samples')-}
-             returnA -< (roger', Just obs)
+             let mObs = lastObs >>= \o → if V.norm (obsPos obs - obsPos o) > ballRadius
+                                            then Nothing else Just obs
+                 vel = liftM2 obsDiff mObs lastObs
+                 adjVel = liftM (V.map (/ max 1 (V.norm (xyOf (basePosition roger) - obsPos obs)))) vel
+                 obsDiff a b = V.map (/ 0.001) (obsPos a - obsPos b)
+             returnA -< (roger', (Just obs, tail vels ++ [adjVel]))
 
-        ballUnseenPath = proc roger →
+        ballUnseenPath = proc (roger, (_, vels)) →
           do roger'   ← lookForBall <|> id -< roger
-             --samples' ← cleanupSamples     -< samples
-             returnA -< (roger', Nothing)
+             returnA -< (roger', (Nothing, tail vels ++ [Nothing]))
 
-        --dist Robot{..} Observation{..} = V.norm (xyOf basePosition - obsPos)
+        avgVels vs = let (t, n) = foldl' (\(b,c) a → (a+b,c+1)) (V.Vec2D 0 0, 0)
+                                                                (catMaybes vs)
+                     in V.map (/ n) t
 
 foveate ∷ (MonadIO m) ⇒ Wire m Robot Robot
 foveate = proc roger@Robot{..} →
@@ -107,24 +84,7 @@ lookForBall = proc roger →
   do rnd ← randomAngle . interval 0.01 -< ()
      returnA -< roger { eyeSetpoint = mapPair (const rnd) }
   where randomAngle = wire . const . liftIO $ randomRIO (-(pi/2.0), pi/2.0)
-{-
-cleanupSamples ∷ (MonadReader Time m) ⇒ Wire m [Sample] [Sample]
-cleanupSamples = wire $ \samples →
-  do now ← asks timeSeconds
-     return $ take 32 (filter (notOld now) samples)
-  where notOld now Sample { smpObs = Observation { obsTime = t } } =
-          now < t + sampleLifetime
 
-guessBallVelocity ∷ [Sample] → V.Vec2D
-guessBallVelocity []   = V.Vec2D 0 0
-guessBallVelocity [_]  = V.Vec2D 0 0
-guessBallVelocity smps = mean (zipWith timeDiff smps (tail smps))
-  where timeDiff a b = m // s where m = obsPos  (smpObs a) - obsPos  (smpObs b)
-                                    s = obsTime (smpObs a) - obsTime (smpObs b)
-        mean xs = let (t, n) = foldl' (\(b,c) a → (a+b,c+1)) (V.Vec2D 0 0, 0) xs
-                  in t // n
-        vector // scalar = V.map (/ scalar) vector
--}
 --------------------------------------------------------------------------------
 
 setup ∷ (MonadIO m) ⇒ Wire m Robot Robot
@@ -137,11 +97,9 @@ setup = localStateWire True $ proc (roger, notYetRun) →
      returnA -< (roger', False)
 
 retreat ∷ (MonadIO m) ⇒ Wire m Robot Robot
-retreat = ifWire notConverged >>> proc roger →
-  do debugStr -< "Retreating to start position."
-     returnA  -< roger { baseSetpoint = baseHome
-                       , armSetpoint  = homePosition
-                       }
+retreat = ifWire notConverged >>> arr (\r → r { baseSetpoint = baseHome
+                                              , armSetpoint  = homePosition
+                                              })
   where notConverged roger =
           V.norm (xyR - xyT) > ε_dist || abs (θR - θT) > ε_θ
           where VectorAndAngle { xyOf = xyR, θOf = θR } = baseSetpoint roger
@@ -149,30 +107,29 @@ retreat = ifWire notConverged >>> proc roger →
                 ε_dist = 0.1
                 ε_θ    = 0.1
 
-intercept ∷ (MonadIO m) ⇒ Wire m (Robot, (Maybe Observation, Estimate)) Robot
-intercept = proc (roger, (maybeObs, Estimate{..})) →
+intercept ∷ (MonadIO m) ⇒ Wire m (Robot, (Maybe Observation, V.Vec2D)) Robot
+intercept = proc (roger, (maybeObs, vel)) →
   do Observation{..} ← maybeWire id -< maybeObs
-     let vel = V.drop V.n2 estState
-         pt  = obsPos + (V.map (* 0.1) vel) + V.Vec2D (ballRadius*2) 0 -- (V.map (* (ballRadius * 2)) (V.normalize vel))
+     let pt  = obsPos + V.map (*0.1) vel
      ifWire (< 0) -< xOf obsPos
      ifWire (< 0) -< xOf vel
      returnA -< safeSetBaseTarget roger pt
 
-swingArm ∷ (MonadIO m) ⇒ Wire m (Robot, (Maybe Observation, Estimate)) Robot
-swingArm = proc (roger@Robot{..}, (maybeObs, Estimate{..})) →
-  let ballPos     = maybe (V.take V.n2 estState) obsPos maybeObs
-      ballVel     = V.drop V.n2 estState
-      rogerPos    = xyOf basePosition
-      shoulderPos = mapPair $ \i →
-        rogerPos + unpolar (i armOffset) (θOf basePosition + pi/4.0)
-      relShoulderPos = mapPair (\i → i shoulderPos - ballPos)
-      shoulderIntersect = mapPair (\i → vectorProj (i relShoulderPos) ballVel)
-  in do ifWire (< shoulder armLength + elbow armLength + ballRadius * 2) -< V.norm (rogerPos - ballPos)
-        if V.norm (left shoulderIntersect) < V.norm (right shoulderIntersect)
-           then safeSetArmTarget left -<
-                   (roger, (rogerPos + left shoulderIntersect) - V.Vec2D (ballRadius*2) 0)
-           else safeSetArmTarget right -<
-                   (roger, (rogerPos + right shoulderIntersect) - V.Vec2D (ballRadius*2) 0)
+swingArm ∷ (MonadIO m) ⇒ Wire m (Robot, (Maybe Observation, V.Vec2D)) Robot
+swingArm = proc (roger@Robot{..}, (maybeObs, vel)) →
+  do obs ← maybeWire id -< maybeObs
+     let ballPos     = obsPos obs
+         rogerPos    = xyOf basePosition
+         shoulderPos = mapPair $ \i →
+           rogerPos + unpolar (i armOffset) (θOf basePosition + pi/4.0)
+         relShoulderPos = mapPair (\i → i shoulderPos - ballPos)
+         shoulderIntersect = mapPair (\i → vectorProj (i relShoulderPos) vel)
+     ifWire (< shoulder armLength + elbow armLength + ballRadius * 2) -< V.norm (rogerPos - ballPos)
+     if V.norm (left shoulderIntersect) < V.norm (right shoulderIntersect)
+        then safeSetArmTarget left -<
+               (roger, (ballPos + left shoulderIntersect) - V.Vec2D ballRadius 0)
+        else safeSetArmTarget right -<
+               (roger, (ballPos + right shoulderIntersect) - V.Vec2D ballRadius 0)
   where vectorProj x0 v = V.map (* (V.dot x0 v / sq (V.norm v))) v
 
 clampSafeVec ∷ Double → V.Vec2D → V.Vec2D
@@ -182,14 +139,18 @@ clampSafeVec space v = V.Vec2D (max (minX+space) (min (-space) (xOf v)))
 safeSetBaseTarget ∷ Robot → V.Vec2D → Robot
 safeSetBaseTarget r p = r { baseSetpoint = VectorAndAngle
                               { xyOf = p'
-                              , θOf  = snd (polar (p' - xyOf (basePosition r)))
+                              , θOf  = clampedθ
                               }
                           }
-  where p' = clampSafeVec (shoulder armLength) p
+  where p' = clampSafeVec (shoulder armLength + elbow armLength + baseRadius) p
+        θ  = snd (polar (p' - xyOf (basePosition r)))
+        clampedθ = if θ < (-(pi/2.0)) || θ > pi/2.0
+                       then θ + pi
+                       else θ
 
 safeSetArmTarget ∷ Monad m ⇒ (∀ a. Pair a → a) → Wire m (Robot, V.Vec2D) Robot
 safeSetArmTarget a = maybeWire . arr $ \(r, p) →
-  a (assignFn r) `fmap` invArmKinematics r a (clampSafeVec ballRadius p)
+  a (assignFn r) `fmap` invArmKinematics r a (clampSafeVec (elbow armLength) p)
     where assignFn r = Pair
             { left  = \p → r { armSetpoint = (armSetpoint r) { left  = p } }
             , right = \p → r { armSetpoint = (armSetpoint r) { right = p } }
@@ -199,15 +160,18 @@ safeSetArmTarget a = maybeWire . arr $ \(r, p) →
 
 pong ∷ Wire (ReaderT Time IO) Robot (Robot, Estimate)
 pong = proc roger0 →
-  do (roger1, obs) ← eyeController -< roger0
-     est           ← kalmanFilter  -< roger1
+  do (roger1, (obs, vel)) ← eyeController -< roger0
      roger2 ← setup . arr fst
-          -- <|> swingArm
+          <|> (proc (r, ov) → do r' ← swingArm <|> arr fst -< (r, ov)
+                                 intercept -< (r', ov))
           <|> intercept
-          <|> retreat . arr fst
-          <|> arr fst -< (roger1, (obs, est))
+          <|> (interval 0.1 >>> retreat) . arr fst
+          <|> arr fst -< (roger1, (obs, vel))
      action (liftIO (hFlush stdout)) -< ()
-     returnA -< (roger2, est)
+     returnA -< (roger2, makeEstimate obs vel)
+  where makeEstimate Nothing _ = blankEstimate
+        makeEstimate (Just Observation {..}) vel = blankEstimate
+          { estState = V.Vec4D (xOf obsPos) (yOf obsPos) (xOf vel) (yOf vel) }
 
 --------------------------------------------------------------------------------
 
