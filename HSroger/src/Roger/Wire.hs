@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
 {-# LANGUAGE UnicodeSyntax         #-}
@@ -11,7 +12,6 @@ import           Control.Arrow
 import           Control.Category
 import           Control.Monad
 import           Control.Monad.Reader
-import           Control.Monad.State
 import           Prelude              hiding (id, (.))
 
 --------------------------------------------------------------------------------
@@ -71,6 +71,12 @@ instance (Monad m) ⇒ Alternative (Wire m a) where
          Nothing → do (b2, w2') ← runWire w2 a
                       return (b2, w1' <|> w2')
 
+instance (Monad m) ⇒ ArrowChoice (Wire m) where
+  left w = Wire fn
+    where fn (Left a)  = do (b, w') ← runWire w a
+                            return (fmap Left b, left w')
+          fn (Right c) = return (Just (Right c), left w)
+
 --------------------------------------------------------------------------------
 
 wire ∷ (Monad m) ⇒ (a → m b) → Wire m a b
@@ -84,10 +90,15 @@ maybeWire w = Wire $ \a →
   do (b, w') ← runWire w a
      return (join b, maybeWire w')
 
-stateWire ∷ (Monad m) ⇒ Wire (StateT s m) a b → s → Wire m a b
-stateWire w s = Wire $ \a →
-  do ((b, w'), s') ← runStateT (runWire w a) s
-     return (b, stateWire w' s')
+stateWire ∷ (Monad m) ⇒ s → Wire m (a, s) (b, s) → Wire m a (b, s)
+stateWire s w = Wire $ \a →
+  do (mb, w') ← runWire w (a, s)
+     case mb of
+       Just (b, s') → return (Just (b, s'), stateWire s' w')
+       Nothing      → return (Nothing, stateWire s w')
+
+localStateWire ∷ (Monad m) ⇒ s → Wire m (a, s) (b, s) → Wire m a b
+localStateWire s w = stateWire s w >>^ fst
 
 skip ∷ (Arrow arr) ⇒ arr a b → arr a a
 skip a = id &&& a >>^ fst
@@ -98,6 +109,9 @@ action = skip . wire . const
 debug ∷ (MonadIO m, Show a) ⇒ Wire m a a
 debug = skip (wire (liftIO . print))
 
+debugStr ∷ (MonadIO m) ⇒ Wire m String ()
+debugStr = wire (liftIO . putStrLn)
+
 debugMsg ∷ (MonadIO m, Show a) ⇒ String → Wire m a a
 debugMsg msg = skip (wire (\a → liftIO (putStrLn (msg ++ show a))))
 
@@ -105,6 +119,14 @@ debugMsg msg = skip (wire (\a → liftIO (putStrLn (msg ++ show a))))
 
 newtype Time = Time { timeSeconds ∷ Double }
 
+interval ∷ (MonadReader Time m) ⇒ Double → Wire m a a
+interval seconds = localStateWire 0.0 . maybeWire . wire $ \(a, lastTime) →
+  do now ← asks timeSeconds
+     if now - lastTime >= seconds
+        then return (Just (a, now))
+        else return Nothing
+
+{-
 delay ∷ (MonadReader Time m) ⇒ Double → Wire m a a
 delay seconds = stateWire (maybeWire (wire fn)) []
   where fn a = do now   ← asks timeSeconds
@@ -114,4 +136,4 @@ delay seconds = stateWire (maybeWire (wire fn)) []
                   if now >= nextTime
                      then put (tail queue') >> return (Just a')
                      else put queue'        >> return Nothing
-
+-}

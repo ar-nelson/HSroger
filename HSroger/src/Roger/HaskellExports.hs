@@ -10,6 +10,7 @@ import           Foreign.Ptr
 import           Foreign.StablePtr
 import           Foreign.Storable
 
+import           Roger.Math
 import qualified Roger.Project1    as Project1
 import qualified Roger.Project2    as Project2
 import qualified Roger.Project3    as Project3
@@ -76,6 +77,8 @@ foreign export ccall hs_project5_get_observation ∷ StablePtr Project5.State
 foreign export ccall hs_project6_control      ∷ ControlFn Project6.State
 foreign export ccall hs_project6_enter_params ∷ ParamsFn Project6.State
 foreign export ccall hs_project6_init_state   ∷ IO (StablePtr Project6.State)
+foreign export ccall hs_project6_get_estimate ∷ StablePtr Project6.State
+                                              → Ptr Estimate → IO ()
 
 foreign export ccall hs_project7_control      ∷ ControlFn Project7.State
 foreign export ccall hs_project7_enter_params ∷ ParamsFn Project7.State
@@ -88,7 +91,16 @@ foreign export ccall hs_project8_init_state   ∷ IO (StablePtr Project8.State)
 foreign export ccall hs_project9_control      ∷ ControlFn Project9.State
 foreign export ccall hs_project9_enter_params ∷ ParamsFn Project9.State
 foreign export ccall hs_project9_init_state   ∷ IO (StablePtr Project9.State)
-
+foreign export ccall hs_project9_get_estimate ∷ StablePtr Project9.State
+                                              → Ptr Estimate → IO ()
+{-
+foreign export ccall hs_project9_get_observation ∷ StablePtr Project9.State
+                                                 → Ptr Observation → IO ()
+foreign export ccall hs_project9_get_velocity ∷ StablePtr Project9.State
+                                              → Ptr CDouble
+                                              → Ptr CDouble
+                                              → IO ()
+-}
 --------------------------------------------------------------------------------
 
 hs_control_roger ∷ Ptr Robot → CDouble → IO ()
@@ -154,6 +166,9 @@ hs_project6_init_state   ∷ IO (StablePtr Project6.State)
 hs_project6_control      = controlFn Project6.control
 hs_project6_enter_params = paramsFn Project6.enterParams
 hs_project6_init_state   = Project6.initState >>= newStablePtr
+hs_project6_get_estimate stPtr estPtr =
+  do st ← deRefStablePtr stPtr
+     poke estPtr (Project6.getEstimate st)
 
 hs_project7_control      ∷ ControlFn Project7.State
 hs_project7_enter_params ∷ ParamsFn Project7.State
@@ -172,6 +187,27 @@ hs_project8_init_state   = Project8.initState >>= newStablePtr
 hs_project9_control      ∷ ControlFn Project9.State
 hs_project9_enter_params ∷ ParamsFn Project9.State
 hs_project9_init_state   ∷ IO (StablePtr Project9.State)
+hs_project9_get_estimate ∷ StablePtr Project9.State → Ptr Estimate → IO ()
+{-
+hs_project9_get_observation ∷ StablePtr Project9.State → Ptr Observation → IO ()
+hs_project9_get_velocity ∷ StablePtr Project9.State
+                         → Ptr CDouble
+                         → Ptr CDouble
+                         → IO ()
+-}
 hs_project9_control      = controlFn Project9.control
 hs_project9_enter_params = paramsFn Project9.enterParams
 hs_project9_init_state   = Project9.initState >>= newStablePtr
+hs_project9_get_estimate stPtr obsPtr =
+  do st ← deRefStablePtr stPtr
+     poke obsPtr (Project9.getEstimate st)
+{-
+hs_project9_get_observation stPtr obsPtr =
+  do st ← deRefStablePtr stPtr
+     poke obsPtr (Project9.getObservation st)
+hs_project9_get_velocity stPtr xPtr yPtr =
+  do st ← deRefStablePtr stPtr
+     let vel = Project9.getVelocity st
+     poke xPtr (CDouble (xOf vel))
+     poke yPtr (CDouble (yOf vel))
+-}

@@ -1,3 +1,4 @@
+{-# LANGUAGE Arrows                #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards       #-}
@@ -17,7 +18,6 @@ import           Control.Applicative
 import           Control.Arrow        hiding (left, right)
 import           Control.Category
 import           Control.Monad.Reader
-import           Control.Monad.State  hiding (State)
 import           Data.Maybe           (fromMaybe)
 import           Data.Vec             hiding (get)
 import           Prelude              hiding (id, (.))
@@ -26,7 +26,6 @@ import           Roger.Project2       (invArmKinematics)
 import           Roger.Project4       (searchtrack, track)
 import           Roger.Project5       (stereoObservation)
 import           Roger.Robot
-import           Roger.TypedLens
 import           Roger.Types
 import           Roger.Wire
 
@@ -70,11 +69,11 @@ moveArmsToHomePosition roger = roger { armSetpoint = homePosition }
 
 chase ∷ (MonadReader Time m, MonadIO m) ⇒ Wire m Robot (Robot, ControlStatus)
 
-chase = (track                    >>^ setL ArmSetpoint homePosition . fst)
-    >>> skip (arr basePosition    >>> debugMsg "Pos: ")
-    >>> (id &&& stereoObservation >>^ updateSetpoint)
+chase = proc roger → do (roger', _) ← track -< roger
+                        obs ← stereoObservation -< roger'
+                        returnA -< updateSetpoint roger' obs
 
-  where updateSetpoint (roger@Robot{..}, Observation{ obsPos = obs })
+  where updateSetpoint roger@Robot{..} Observation{ obsPos = obs }
           | ballDist <= punchDist &&
             ballDist >= setptDist &&
             θError   <= baseθε     = (roger, Converged)
@@ -87,72 +86,74 @@ chase = (track                    >>^ setL ArmSetpoint homePosition . fst)
                                     }
 
 punch ∷ (MonadReader Time m, MonadIO m)
-      ⇒ Wire (StateT ControlStatus m) Robot Robot
-punch = lockBasePosition
-    >>> (ifAlreadySetTarget >>> checkIfDone)
-    <|> (id &&& stereoObservation >>> setPunchTarget >>> checkIfDone)
-    <|> giveUp
+      ⇒ Wire m (Robot, ControlStatus) (Robot, ControlStatus)
+punch = (<|> giveUp) $ proc (origRoger, st) →
+  do let roger = origRoger { baseSetpoint = basePosition origRoger }
+     if st == Transient || st == Converged
+        then checkIfDone -< roger
+        else do obs    ← stereoObservation -< roger
+                roger' ← setPunchTarget    -< (roger, obs)
+                checkIfDone -< roger'
 
-  where ifAlreadySetTarget =
-          skip (wire (const get) >>> ifWire (`elem` [Transient, Converged]))
-
-        setPunchTarget = maybeWire $ arr $
+  where setPunchTarget = maybeWire $ arr $
           \(roger@Robot{..}, Observation{ obsPos = obs }) →
             let (_, ballAngle) = polar (obs - xyOf basePosition)
                 target         = obs - unpolar (ballRadius / 2) ballAngle
             in liftM (\setp → roger {armSetpoint = armSetpoint {right = setp}})
                      (invArmKinematics roger right target)
 
-        checkIfDone = checkForCollision
-                  <|> (ifWire armStillMoving >>> action (put Transient))
+        checkIfDone = checkForCollision <|> proc roger →
+          if armStillMoving roger
+             then returnA -< (roger, Transient)
+             else empty -< ()
 
-        checkForCollision = ifWire (\r → right (extForce r) /= Vec2D 0 0)
-                        >>> arr moveArmsToHomePosition
-                        >>> action (put Converged)
+        checkForCollision = proc roger →
+          if right (extForce roger) /= Vec2D 0 0
+             then returnA -< (moveArmsToHomePosition roger, Converged)
+             else empty -< ()
 
         armStillMoving Robot{..} = armMax θError > θε || armMax armθ' > θ'ε
           where θError   = mapArms (\i → i armθ - i armSetpoint)
                 armMax a = max (shoulder (right a)) (elbow (right a))
 
-        lockBasePosition = arr (\r@Robot{..} → r {baseSetpoint = basePosition})
-
-        giveUp = moveArmsToHomePosition ^>> action (put NoReference)
+        giveUp = proc (roger, _) →
+          returnA -< (moveArmsToHomePosition roger, NoReference)
 
 chasepunch ∷ (MonadReader Time m, MonadIO m)
            ⇒ Wire m Robot (Robot, ControlStatus)
-chasepunch = stateWire ((  (isState Punch       >>> doPunch)
-                       <|> (isState Chase       >>> doChase)
-                       <|> (isState SearchTrack >>> doSearchTrack)
-                        ) >>> second (second (wire put)) >>^ second fst
-                       ) SearchTrack
+chasepunch = localStateWire SearchTrack $ proc (roger, st) → case st of
+  Punch       → doPunch       -< roger
+  Chase       → doChase       -< roger
+  SearchTrack → doSearchTrack -< roger
 
-  where doSearchTrack = searchtrack <|> (id &&& pure NoReference)
-                    >>^ second (id &&& transition)
-          where transition Converged = Chase
-                transition _         = SearchTrack
+  where doPunch = stateWire Unknown (punch <|> (fst ^>> noRef)) >>^ transition
+          where transition (r, Converged)   = ((r, Unknown), Chase)
+                transition (r, NoReference) = ((r, NoReference), SearchTrack)
+                transition t                = (t, Punch)
 
-        doChase = chase <|> (id &&& pure NoReference)
-              >>^ second (id &&& transition)
+        doChase = proc roger →
+          do (roger', st) ← chase <|> noRef -< roger
+             returnA -< ((roger', st), transition st)
           where transition Converged   = Punch
                 transition NoReference = SearchTrack
                 transition _           = Chase
 
-        doPunch = stateWire ( punch <|> id
-                          >>> id &&& wire (const get)
-                          >>> second (id &&& wire transition)) Unknown
-          where transition Converged   = put Unknown >> return Chase
-                transition NoReference = return SearchTrack
-                transition _           = return Punch
+        doSearchTrack = proc roger →
+          do (roger', st) ← searchtrack <|> noRef -< roger
+             returnA -< ((roger', st), transition st)
+          where transition Converged = Chase
+                transition _         = SearchTrack
 
-        isState s = skip (wire (const get) >>> ifWire (== s))
+        noRef = id &&& pure NoReference
 
 setup ∷ (MonadIO m) ⇒ Wire m Robot Robot
-setup = stateWire (skip (wire (const get) >>> ifWire id)
-               >>> action (liftIO (putStrLn "Doing initial setup..."))
-               >>> arr (\r → r { baseSetpoint = basePosition r
-                               , armSetpoint  = armθ r
-                               })
-               >>> action (put False)) True
+setup = localStateWire True $ proc (roger, notYetRun) →
+  do ifWire id -< notYetRun
+     debugStr  -< "Doing initial setup..."
+     let roger' = roger { baseSetpoint = basePosition roger
+                        , armSetpoint  = armθ roger
+                        }
+     returnA   -< (roger', False)
 
 --------------------------------------------------------------------------------
 

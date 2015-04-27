@@ -36,14 +36,13 @@ sampleGazeDirection ∷ (MonadIO m) ⇒ PrDist → Wire m a Double
 --
 -- This implementation treats the distribution as mutable state, but currently
 -- leaves it unchanged.
-sampleGazeDirection = stateWire (maybeWire (wire fn))
-  where fn _ = do dist ← get
-                  rnd  ← liftIO $ randomRIO (0.0, prArea dist)
+sampleGazeDirection initDist = localStateWire initDist . maybeWire . wire $
+  \(_, dist) → do rnd ← liftIO $ randomRIO (0.0, prArea dist)
                   let accum i sum
                         | sum < rnd = accum (i + 1) (sum + (prBins dist !! i))
                         | otherwise = i
                       bin = fromIntegral (accum 0 0) ∷ Double
                   return $ if prArea dist < 0.02
                               then Nothing
-                              else Just ((bin+0.5) * prBinSize dist - pi)
+                              else Just ((bin+0.5) * prBinSize dist - pi, dist)
 

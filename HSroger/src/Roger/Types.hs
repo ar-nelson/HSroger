@@ -18,6 +18,7 @@ module Roger.Types( VectorAndAngle(..)
                   , blue
                   , ControlStatus(..)
                   , Observation(..)
+                  , Estimate(..)
 ) where
 
 import           Control.Applicative
@@ -86,6 +87,10 @@ data Observation = Observation { obsPos  ∷ Vec2D
                                , obsTime ∷ Double
                                } deriving Show
 
+data Estimate = Estimate { estState ∷ Vec4D
+                         , estCov   ∷ Mat44 Double
+                         , estTime  ∷ Double
+                         }
 
 --------------------------------------------------------------------------------
 
@@ -145,21 +150,26 @@ instance Storable Observation where
   sizeOf _ = 7 * doubleSize
   alignment _ = 4
   peek p = Observation <$> (Vec2D <$> peekAt 0 <*> peekAt 1)
-                       <*> do a ← peekAt 2
-                              b ← peekAt 3
-                              c ← peekAt 4
-                              d ← peekAt 5
-                              return $ (a :. b :. ()) :.
-                                       (c :. d :. ()) :. ()
+                       <*> fmap matFromList (sequence (fmap peekAt [2..]))
                        <*> peekAt 6
            where peekAt = peekElemOff (castPtr p ∷ Ptr Double)
   poke p Observation{..} =
     do pokeAt 0 (get n0 obsPos)
        pokeAt 1 (get n1 obsPos)
-       pokeAt 2 (get n0 (get n0 obsCov))
-       pokeAt 3 (get n1 (get n0 obsCov))
-       pokeAt 4 (get n0 (get n1 obsCov))
-       pokeAt 5 (get n1 (get n1 obsCov))
+       forM_ (zip [2..] (matToList obsCov)) (uncurry pokeAt)
        pokeAt 6 obsTime
+    where pokeAt = pokeElemOff (castPtr p ∷ Ptr Double)
+
+instance Storable Estimate where
+  sizeOf _ = 21 * doubleSize
+  alignment _ = 4
+  peek p = Estimate <$> fmap fromList (sequence (fmap peekAt [0..]))
+                    <*> fmap matFromList (sequence (fmap peekAt [4..]))
+                    <*> peekAt 20
+           where peekAt = peekElemOff (castPtr p ∷ Ptr Double)
+  poke p Estimate{..} =
+    do forM_ (zip [0..] (toList estState)) (uncurry pokeAt)
+       forM_ (zip [4..] (matToList estCov)) (uncurry pokeAt)
+       pokeAt 20 estTime
     where pokeAt = pokeElemOff (castPtr p ∷ Ptr Double)
 

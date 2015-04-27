@@ -12,9 +12,12 @@ module Roger.Math( xOf
                  , mat44
                  , rotateMat22
                  , constructwTb
+                 , sq
+                 , multms
 ) where
 
 import           Data.Vec
+import           Prelude     hiding (map)
 import           Roger.Types
 
 xOf ∷ Access N0 α υ ⇒ υ → α
@@ -71,4 +74,10 @@ constructwTb basePos = mat44 ( c0,  -s0, 0,  xOf (xyOf basePos)
                              )
                      where s0 = sin (θOf basePos)
                            c0 = cos (θOf basePos)
+
+sq ∷ Num α ⇒ α → α
+sq x = x * x
+
+multms ∷ (Num b1, Map b1 b1 a b, Map a b u v) ⇒ u → b1 → v
+m `multms` s = map (map (* s)) m -- matrix * scalar
 

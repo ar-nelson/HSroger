@@ -73,9 +73,6 @@ stereoObservation = (avgRedWire &&& id >>>) $ wire $
 
     in liftM (\obsTime → Observation {..}) (asks timeSeconds)
 
-  where sq x = x * x
-        m `multms` s = map (map (* s)) m -- matrix * scalar
-
 --------------------------------------------------------------------------------
 
 control ∷ Robot → State → Double → IO (Robot, State)

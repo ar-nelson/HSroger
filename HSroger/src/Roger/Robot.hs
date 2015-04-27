@@ -10,26 +10,16 @@ module Roger.Robot( axleRadius
                   , baseline
                   , baseRadius
                   , focalLength
+                  , minX
+                  , maxX
+                  , minY
+                  , maxY
                   , Robot(..)
-                  , Eyeθ(..)
-                  , Eyeθ'(..)
-                  , Armθ(..)
-                  , Armθ'(..)
-                  , mapRoger
-                  , setRoger's
-                  , ExtForce(..)
-                  , BasePosition(..)
-                  , BaseVelocity(..)
-                  , BaseSetpoint(..)
-                  , ArmSetpoint(..)
-                  , EyeSetpoint(..)
 ) where
 
 import           Control.Applicative
-import           Control.Monad.State
 import           Data.Vec
 import           Foreign.Storable
-import           Roger.TypedLens
 import           Roger.Types
 
 axleRadius ∷ Double
@@ -53,6 +43,18 @@ baseRadius = 0.16
 focalLength ∷ Double
 focalLength = 64 -- pixels
 
+minX ∷ Double
+minX = -5.0
+
+maxX ∷ Double
+maxX = 5.0
+
+minY ∷ Double
+minY = -2.0
+
+maxY ∷ Double
+maxY = 2.0
+
 --------------------------------------------------------------------------------
 
 data Robot = Robot { eyeθ         ∷ Pair Double
@@ -71,66 +73,6 @@ data Robot = Robot { eyeθ         ∷ Pair Double
                    , armSetpoint  ∷ Pair (ArmPair Double)
                    , eyeSetpoint  ∷ Pair Double
                    }
-
---------------------------------------------------------------------------------
--- TypedLens `Has` instances for Robot. Not all of the fields are included here;
--- just the most common ones.
-
-newtype Eyeθ         = Eyeθ  { getEyeθ ∷ Pair Double }
-newtype Eyeθ'        = Eyeθ' { getEyeθ' ∷ Pair Double }
-newtype Armθ         = Armθ  { getArmθ ∷ Pair (ArmPair Double) }
-newtype Armθ'        = Armθ' { getArmθ' ∷ Pair (ArmPair Double) }
-newtype ExtForce     = ExtForce     { getExtForce ∷ Pair Vec2D }
-newtype BasePosition = BasePosition { getBasePosition ∷ VectorAndAngle }
-newtype BaseVelocity = BaseVelocity { getBaseVelocity ∷ VectorAndAngle }
-newtype BaseSetpoint = BaseSetpoint { getBaseSetpoint ∷ VectorAndAngle }
-newtype ArmSetpoint  = ArmSetpoint  { getArmSetpoint ∷ Pair (ArmPair Double) }
-newtype EyeSetpoint  = EyeSetpoint  { getEyeSetpoint ∷ Pair Double }
-
-instance Has Eyeθ Robot where
-  getL = Eyeθ . eyeθ
-  putL (Eyeθ θ) r = r { eyeθ = θ }
-
-instance Has Eyeθ' Robot where
-  getL = Eyeθ' . eyeθ'
-  putL (Eyeθ' θ') r = r { eyeθ' = θ' }
-
-instance Has Armθ Robot where
-  getL = Armθ . armθ
-  putL (Armθ θ) r = r { armθ = θ }
-
-instance Has Armθ' Robot where
-  getL = Armθ' . armθ'
-  putL (Armθ' θ') r = r { armθ' = θ' }
-
-instance Has ExtForce Robot where
-  getL = ExtForce . extForce
-  putL (ExtForce v) r = r { extForce = v }
-
-instance Has BasePosition Robot where
-  getL = BasePosition . basePosition
-  putL (BasePosition v) r = r { basePosition = v }
-
-instance Has BaseVelocity Robot where
-  getL = BaseVelocity . baseVelocity
-  putL (BaseVelocity v) r = r { baseVelocity = v }
-
-instance Has BaseSetpoint Robot where
-  getL = BaseSetpoint . baseSetpoint
-  putL (BaseSetpoint v) r = r { baseSetpoint = v }
-
-instance Has ArmSetpoint Robot where
-  getL = ArmSetpoint . armSetpoint
-  putL (ArmSetpoint v) r = r { armSetpoint = v }
-
-instance Has EyeSetpoint Robot where
-  getL = EyeSetpoint . eyeSetpoint
-  putL (EyeSetpoint v) r = r { eyeSetpoint = v }
-
-mapRoger ∷ (Has Robot s, MonadState s m) ⇒ (Robot → Robot) → m ()
-mapRoger = mapStateL
-
-setRoger's a b = mapRoger (setL a b)
 
 --------------------------------------------------------------------------------
 -- Storable instance that allows us to read/write the C Robot struct.

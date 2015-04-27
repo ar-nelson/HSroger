@@ -8,6 +8,7 @@
 
 #include <HsFFI.h>
 #include "roger.h"
+#include "simulate.h"
 #include "control.h"
 #include "HaskellExports_stub.h"
 
@@ -132,7 +133,19 @@ void project6_reset(Robot* roger) {
 void project6_enter_params() {
   project6_state = hs_project6_enter_params(project6_get_state());
 }
-void project6_visualize() {}
+#define VMAG 0.5
+void project6_visualize() {
+  /*
+  Estimate x_plus;
+  void draw_estimate(), x_draw_line();
+
+  hs_project6_get_estimate(project6_get_state(), &x_plus);
+  draw_estimate(10.0, x_plus);
+  x_draw_line(BLUE, x_plus.state[X], x_plus.state[Y],
+	      (x_plus.state[X] + VMAG*x_plus.state[XDOT]),
+	      (x_plus.state[Y] + VMAG*x_plus.state[YDOT]));
+  */
+}
 
 // -----------------------------------------------------------------------------
 // Project 7
@@ -198,5 +211,27 @@ void project9_reset(Robot* roger) {
 void project9_enter_params() {
   project9_state = hs_project9_enter_params(project9_get_state());
 }
-void project9_visualize() {}
+void project9_visualize() {
+  /*
+  Estimate x_plus;
+  void draw_estimate(), x_draw_line();
+
+  hs_project9_get_estimate(project9_get_state(), &x_plus);
+  draw_estimate(10.0, x_plus);
+  x_draw_line(BLUE, x_plus.state[X], x_plus.state[Y],
+	      (x_plus.state[X] + VMAG*x_plus.state[XDOT]),
+	      (x_plus.state[Y] + VMAG*x_plus.state[YDOT]));
+  */
+  /*
+  Observation obs;
+  double vx, vy;
+  void draw_observation(), x_draw_line();
+  hs_project9_get_observation(project9_get_state(), &obs);
+  hs_project9_get_velocity(project9_get_state(), &vx, &vy);
+  draw_observation(obs);
+  x_draw_line(BLUE, obs.pos[X], obs.pos[Y],
+      obs.pos[X] + VMAG * vx,
+      obs.pos[Y] + VMAG * vy);
+  */
+}
 

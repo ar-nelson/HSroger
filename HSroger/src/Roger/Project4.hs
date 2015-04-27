@@ -1,3 +1,4 @@
+{-# LANGUAGE Arrows                #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes            #-}
@@ -37,47 +38,51 @@ initState = return (searchtrack >>^ fst)
 ε ∷ Double
 ε = 0.01
 
-search ∷ (MonadIO m) ⇒ Wire (StateT ControlStatus m) Robot Robot
-search = (stateIs Converged >>> skip (wire $ const $
-             put Unknown >> liftIO (putStrLn "Restarting search...")))
-     <|> (stateIs Transient >>> waitToAlign)
-     <|> (id &&& sampleGazeDirection prRedPrior >>> setHeading)
+search ∷ (MonadIO m) ⇒ Wire m (Robot, ControlStatus) (Robot, ControlStatus)
+search = proc (roger, st) → case st of
+  Converged → do debugStr -< "Restarting search..."
+                 returnA  -< (roger, Unknown)
+  Transient → waitToAlign -< roger
+  _         → do heading ← sampleGazeDirection prRedPrior -< ()
+                 roger'  ← setHeading -< (roger, heading)
+                 waitToAlign -< roger'
 
-  where stateIs s = skip (wire (const get) >>> ifWire (== s))
+  where waitToAlign = wire (return . waitToAlign')
+        setHeading  = arr (uncurry setHeading')
 
-        waitToAlign = wire $ \roger@Robot{..} →
-          let heading   = θOf baseSetpoint
-              baseθ     = θOf basePosition
-              eyeTarget = clampAngle (heading - baseθ)
-              nextState = if abs (baseθ - heading) < ε then Converged
-                                                       else Transient
-          in do put nextState
-                return (roger { eyeSetpoint = mapPair (const eyeTarget) })
-
-        setHeading = arr setBaseSetpoint ^>> waitToAlign
-
-        setBaseSetpoint (roger, heading) =
+        waitToAlign' roger@Robot{..} =
+          (roger { eyeSetpoint = mapPair (const eyeTarget) }, nextState)
+          where heading   = θOf baseSetpoint
+                baseθ     = θOf basePosition
+                eyeTarget = clampAngle (heading - baseθ)
+                nextState = if abs (baseθ - heading) < ε then Converged
+                                                         else Transient
+        setHeading' roger heading =
           roger { baseSetpoint = (baseSetpoint roger) { θOf = heading } }
 
 track ∷ (MonadIO m) ⇒ Wire m Robot (Robot, ControlStatus)
-track = avgRedWire &&& id >>^ \(avgRed, roger@Robot{..}) →
-
-  let eye ∷ (∀ α. Pair α → α) → Double
-      eye i = i eyeθ - θErr where θErr = -(imageCoordToAngle (i avgRed))
-      avgBaseError = (-(left eyeθ) - right eyeθ) / 2.0
-      base = baseSetpoint { θOf = clampAngle (θOf basePosition - avgBaseError) }
-
-  in if abs avgBaseError < ε
-        then (roger { eyeSetpoint  = mapPair eye }, Converged)
-        else (roger { eyeSetpoint  = mapPair eye
-                    , baseSetpoint = base
-                    }, Transient)
+track = proc roger@Robot{..} →
+  do avgRed ← avgRedWire -< roger
+     let avgBaseError = (-(left eyeθ) - right eyeθ) / 2.0
+         eyes = mapPair (\i → i eyeθ + imageCoordToAngle (i avgRed))
+         base = baseSetpoint
+           { θOf = clampAngle (θOf basePosition - avgBaseError) }
+     returnA -< if abs avgBaseError < ε
+                   then (roger { eyeSetpoint  = eyes }, Converged)
+                   else (roger { eyeSetpoint  = eyes
+                               , baseSetpoint = base
+                               }, Transient)
 
 searchtrack ∷ (MonadIO m) ⇒ Wire m Robot (Robot, ControlStatus)
-searchtrack = (`stateWire` Unknown) $
-  (skip searchConverged >>> track) <|> (search &&& searchState)
-  where searchState     = wire (const get)
-        searchConverged = searchState >>> ifWire (== Converged)
+searchtrack = localStateWire Unknown $ proc (roger, searchState) →
+  case searchState of
+    Converged → do result ← track <|> (id &&& pure NoReference) -< roger
+                   returnA -< ( result
+                              , case snd result of NoReference → NoReference
+                                                   _           → Converged
+                              )
+    _         → do result ← search <|> id -< (roger, searchState)
+                   returnA -< (result, snd result)
 
 --------------------------------------------------------------------------------
 
